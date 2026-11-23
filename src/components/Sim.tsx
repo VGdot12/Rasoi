@@ -1,63 +1,63 @@
-import { fmtTime, milestones, nameOf, SIM, toMin, variants } from '../lib/logic'
+import { fmtTime, milestones, SIM, toMin } from '../lib/logic'
+import { PERSONAS } from '../lib/seed'
 import { useStore } from '../lib/store'
 
-/** Prototype controls inside the app: run the evening clock and switch between the three views. */
+/** Prototype control: runs the evening clock for the journey you picked. You can't switch people mid-way. */
 export function SimBar() {
-  const { db, me, flat, time, sim } = useStore()
-  if (!flat || !me) return null
-  const v = variants(db, flat)
+  const { me, time, sim } = useStore()
+  if (!me) return null
+  const persona = PERSONAS.find((p) => p.userId === me.id)
   const ended = time >= SIM.end
+  const fresh = !sim.running && !sim.waitingForCook && time === SIM.start
   const progress = Math.min(1, Math.max(0, (toMin(time) - toMin(SIM.start)) / (toMin(SIM.end) - toMin(SIM.start))))
-  const views = [
-    { id: v.owner, label: 'Tonight’s owner' },
-    { id: v.roommate, label: 'Roommate' },
-    { id: v.cook, label: 'Didi' },
-  ].filter((x) => x.id)
   return (
     <div className="simbar">
       <div className="sim-row">
-        <button type="button" className={`sim-btn ${sim.running ? 'on' : ''}`} onClick={sim.toggle}>
-          {sim.running ? '❚❚ Pause' : ended ? '↺ Simulate again' : sim.waitingForCook ? '⏸ Waiting' : '▶ Simulate'}
+        <button type="button" className={`sim-btn ${sim.running ? 'on' : ''}`} onClick={sim.toggle} disabled={sim.waitingForCook}>
+          {sim.running ? '❚❚ Pause' : ended ? '↺ Run again' : sim.waitingForCook ? 'Waiting for you' : fresh ? '▶ Simulate' : '▶ Resume'}
         </button>
         <div className="sim-clock">
           <strong>{fmtTime(time)}</strong>
           <span className="sim-track"><span style={{ width: `${progress * 100}%` }} /></span>
         </div>
-        <button type="button" className="sim-mini" onClick={sim.resetEvening} title="Back to 7:30 pm">↺</button>
-        <button type="button" className="sim-mini" onClick={sim.nextEvening} title="Next evening">⏭</button>
+        {!fresh && (
+          <button type="button" className="sim-restart" onClick={sim.resetEvening}>Restart</button>
+        )}
       </div>
-      {sim.waitingForCook && <div className="sim-wait">Clock paused at 8 pm. Send Didi's note below and it carries on.</div>}
-      {!sim.running && !sim.waitingForCook && !ended && time === SIM.start && (
-        <div className="sim-hint">
-          {me.role === 'cook' ? 'Press Simulate: the clock stops at 8 pm for Didi to send her note.' : 'Press Simulate: Didi\u2019s note arrives at 8 pm, the list at 10 pm.'}
-        </div>
-      )}
-      <div className="sim-views" role="tablist" aria-label="View as">
-        {views.map((x) => (
-          <button key={x.label} type="button" role="tab" aria-selected={me.id === x.id} className={me.id === x.id ? 'on' : ''} onClick={() => sim.viewAs(x.id!)}>
-            {x.label}
-            <span>{nameOf(db, x.id!)}</span>
-          </button>
-        ))}
-      </div>
+      {(sim.waitingForCook || fresh || ended) && <div className="sim-hint">
+        {sim.waitingForCook
+          ? 'Paused at 8 pm. Send your note below and the evening carries on.'
+          : fresh
+            ? `You're ${persona?.name ?? me.name}${persona ? ` · ${persona.role.toLowerCase()}` : ''}. 7:30 pm to midnight, 20 seconds an hour.`
+            : ended
+              ? 'Evening over.'
+              : ''}
+      </div>}
     </div>
   )
 }
 
 /** The four milestones of the evening. */
+const LABELS: Record<string, string[]> = {
+  en: ['Didi\u2019s note', 'List created', 'Order placed', 'Order received'],
+  hi: ['दीदी का नोट', 'लिस्ट बनी', 'ऑर्डर हुआ', 'सामान आया'],
+  te: ['దీదీ నోట్', 'జాబితా సిద్ధం', 'ఆర్డర్ అయింది', 'సరుకులు వచ్చాయి'],
+}
+
 export function Milestones() {
-  const { tonight, time } = useStore()
+  const { me, tonight, time } = useStore()
+  const labels = LABELS[me?.role === 'cook' ? me.lang : 'en']
   if (!tonight) return null
   if (tonight.skipped) return <div className="milestones skipped">No cook tomorrow: nothing to order tonight.</div>
   const ms = milestones(tonight, time)
   const current = ms.findIndex((m) => !m.done)
   return (
-    <ol className="milestones">
+    <ol className="milestones" aria-label="Tonight's progress">
       {ms.map((m, i) => (
         <li key={m.k} className={`${m.done ? 'done' : ''} ${i === current ? 'current' : ''}`}>
           <span className="ms-dot">{m.done ? '✓' : i + 1}</span>
-          <span className="ms-k">{m.k}</span>
-          <span className="ms-t">{m.done ? fmtTime(m.at) : m.due ? fmtTime(m.due) : '—'}</span>
+          <span className="ms-k">{labels[i] ?? m.k}</span>
+          <span className="ms-t">{m.done ? fmtTime(m.at) : `by ${fmtTime(m.due)}`}</span>
         </li>
       ))}
     </ol>

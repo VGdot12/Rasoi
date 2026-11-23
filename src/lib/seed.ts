@@ -32,7 +32,7 @@ export function seedDB(): DB {
     staplesWeekday: weekday(today),
   }
 
-  const db: DB = { version: 3, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: SIM.start } }
+  const db: DB = { version: 4, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: SIM.start } }
 
   // Two weeks of evenings, built in order so turns rotate exactly as the app would rotate them.
   const itemsPool = [['onion', 'tomato', 'curd'], ['milk', 'coriander'], ['potato', 'chilli', 'ginger'], ['paneer', 'tomato'], ['bhindi', 'onion'], ['egg', 'bread', 'milk'], ['spinach', 'garlic'], ['lemon', 'curd']]
@@ -76,3 +76,10 @@ export function seedDB(): DB {
   }
   return db
 }
+
+/** The three journeys you can take in the prototype. Picked once, at the start. */
+export const PERSONAS = [
+  { userId: 'u_aditya', phone: DEMO_PHONES.aditya, name: 'Aditya', role: 'Orders tonight', blurb: 'It’s your turn. Get the list, place the order, see it arrive.', emoji: '🛒' },
+  { userId: 'u_rohan', phone: DEMO_PHONES.rohan, name: 'Rohan', role: 'Roommate', blurb: 'Not your turn. Add what you need and relax while Aditya orders.', emoji: '🛋️' },
+  { userId: 'u_sunita', phone: DEMO_PHONES.cook, name: 'Sunita didi', role: 'Cook', blurb: 'Tell the flat tomorrow’s dish and what’s running out.', emoji: '👩‍🍳' },
+] as const

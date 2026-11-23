@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, autoNote, buildList, eveningOrDraft, milestones, newEvening, notificationsFor, stageOf, upcomingTurns } from './logic'
+import { addDays, AUTO, autoNote, findEvening, simTick, buildList, eveningOrDraft, milestones, newEvening, notificationsFor, stageOf, upcomingTurns } from './logic'
 import { AMOUNTS, parseQty, UNITS_FOR } from './qty'
 import { seedDB } from './seed'
 
@@ -74,5 +74,33 @@ describe('milestones', () => {
     e.ordered = { by: e.ownerId, at: '22:20', app: 'Blinkit', amount: null }
     e.received = { by: flat.memberIds[0], at: '23:10' }
     expect(milestones(e, '23:10').every((m) => m.done)).toBe(true)
+  })
+})
+
+describe('the three journeys', () => {
+  const run = (userId: string, until = '24:00') => {
+    const db = seedDB()
+    db.sessionUserId = userId
+    for (let i = 0; i < 200 && db.clock!.time < until; i++) simTick(db)
+    return { db, e: findEvening(db, db.flats[0].id, db.clock!.date)! }
+  }
+  it('makes Aditya tonight\u2019s owner', () => {
+    expect(run('u_rohan', '19:33').e.ownerId).toBe('u_aditya')
+  })
+  it('Rohan: note at 8, Aditya orders at 11, receives at 11:45 if Rohan does not', () => {
+    const { e } = run('u_rohan')
+    expect(e.note!.at).toBe('20:00')
+    expect(e.ordered).toMatchObject({ by: 'u_aditya', at: AUTO.orderAt })
+    expect(e.received).toMatchObject({ by: 'u_aditya', at: '23:45' })
+  })
+  it('Aditya: nothing is ordered for him', () => {
+    const { e } = run('u_aditya')
+    expect(e.note).not.toBeNull()
+    expect(e.ordered).toBeNull()
+  })
+  it('Didi: the clock waits at 8 pm for her note', () => {
+    const { db, e } = run('u_sunita')
+    expect(db.clock!.time).toBe('20:00')
+    expect(e.note).toBeNull()
   })
 })

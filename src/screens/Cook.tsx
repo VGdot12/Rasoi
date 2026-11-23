@@ -72,11 +72,20 @@ export function CookApp() {
     return (
       <div className="screen cook">
         {header}
-        <section className="cook-done">
-          <div className="done-mark">✓</div>
-          <h2>{L('sent')}</h2>
-          <p>{L('sentSub')}</p>
-        </section>
+        {tonight.received ? (
+          <section className="finale cook-finale" aria-live="polite">
+            <div className="confetti" aria-hidden>{Array.from({ length: 14 }, (_, i) => <i key={i} />)}</div>
+            <div className="finale-mark">✓</div>
+            <h3>{L('allSet')}</h3>
+            <p>{L('allSetSub')}</p>
+          </section>
+        ) : (
+          <section className="cook-done">
+            <div className="done-mark">✓</div>
+            <h2>{L('sent')}</h2>
+            <p>{L('sentSub')}</p>
+          </section>
+        )}
         <section className="card">
           <div className="card-title">{L('tomorrowList')}{tonight.dish ? ` · ${tonight.dish}` : ''}</div>
           <div className="cook-tiles small-tiles">
@@ -85,9 +94,9 @@ export function CookApp() {
             ))}
           </div>
           {existing.voiceSecs > 0 && <VoiceNote url={existing.voiceUrl} secs={existing.voiceSecs} />}
-          <p className={`order-status ${tonight.ordered ? 'ok' : ''}`}>
-            {tonight.received ? `✅ ${L('received')}` : tonight.ordered ? `🛵 ${L('ordered')}: ${firstName(nameOf(db, tonight.ordered.by))}` : `⏳ ${L('waitingOrder')}`}
-          </p>
+          {!tonight.received && <p className={`order-status ${tonight.ordered ? 'ok' : ''}`}>
+            {tonight.ordered ? `🛵 ${L('ordered')}: ${firstName(nameOf(db, tonight.ordered.by))}` : `⏳ ${L('waitingOrder')}`}
+          </p>}
         </section>
         <button type="button" className="btn btn-outline btn-block" onClick={() => setEditing(true)}>{L('edit')}</button>
         <button type="button" className="link center-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out</button>

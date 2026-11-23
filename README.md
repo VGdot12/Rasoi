@@ -30,11 +30,10 @@ flat's usual dishes.
 
 | Who | Screen | Pain point it answers |
 |---|---|---|
-| Everyone | Welcome, phone login with a one-time code, name and role | — |
+| Everyone | Choose who you are, then phone sign-in with a one-time code | — |
 | Flatmate | Create a flat (cook, language, usual dishes, staples day, turn) or join with a 6-letter code; invite on WhatsApp | — |
-| Flatmate | **Tonight**: what to do now, owner, progress (note → list → ordered → all there), today's cooking, tomorrow's dish, week summary | PR1 missing stock, PR4 what to cook |
+| Flatmate | **Tonight**: the four milestones, the one thing to do now, the cook's note, tomorrow's dish, and turns (who orders tonight and next, hand over, who's ordered this month) | PR1 missing stock, PR2 no owner, PR4 what to cook |
 | Flatmate | **List**: one list with quantities, who added what, copy / share; adding after the order moves to tomorrow's list | PR1, PR3 incomplete orders, duplicate buys |
-| Flatmate | **Turns**: next 7 owners, hand over tonight, who ordered in the last 30 days against a fair share | PR2 no owner |
 | Flatmate | **Dishes**: usual dishes, what was cooked this week | PR4 |
 | Flatmate | **Flat**: members, invite code, cook, staples day, plan (₹149 a month per flat, split) | — |
 | Cook | One screen, big picture tiles, her language, voice note, "not coming tomorrow", order status | PR1 |
@@ -44,22 +43,39 @@ track pantry stock or scan barcodes, show spend dashboards.
 
 ## Trying the prototype
 
-There is no backend yet: data is kept in the browser, and login codes are not really sent (any 4 digits
-work). The sample flat **Quad 3** (Rohan, Aditya, Karan and Sunita didi) has two weeks of history.
+There is no backend yet: data is kept in the browser, and login codes are not really sent. The sample flat
+is **Quad 3** (Aditya, Rohan, Karan and their cook, Sunita didi), with two weeks of history.
 
-On the login screen pick one of the three views: **Tonight's owner**, **Roommate** or **Didi**. Inside the
-app, the dark **Simulate** bar runs the evening from 7:30 pm to midnight at 20 seconds per hour, and lets you
-switch between the three views at any time. ↺ restarts the evening; ⏭ moves to the next evening (turns rotate).
+**Pick who you are on the first screen.** You live through the whole evening as that person and can't
+switch mid-way; log out to try another. Signing in needs no typing: the number is filled in and the code
+fills itself, as SMS autofill does. Then press **Simulate**: the clock runs from 7:30 pm to midnight at
+20 seconds per hour, and **Restart** takes you back to 7:30 pm.
 
-There are two flows:
+| Journey | What you do | What happens on its own |
+|---|---|---|
+| **Aditya · orders tonight** | Add anything you need; at 10 pm tap **Order now → Order placed**; about 20 minutes later tap **Order received** | Didi's note at 8 pm; the list at 10 pm, with a reminder that stays until you order |
+| **Rohan · roommate** | Add anything you need before 10 pm; tap **Order received** from 11:20 pm | Didi's note at 8 pm; the list at 10 pm; Aditya orders at 11 pm; if you haven't marked it, Aditya receives it at 11:45 pm |
+| **Sunita didi · cook** | At 8 pm the clock waits for you: answer the three questions and send | The flat orders at 11 pm and receives it at 11:30 pm |
 
-- **Flatmate flow** (Tonight's owner or Roommate): press Simulate. Didi's note arrives on its own at 8 pm, the
-  list is created at 10 pm and the owner's reminder appears. As the owner, tap **Order now → Order placed**.
-  Switch to Roommate (or stay) and tap **Order received**.
-- **Didi's flow**: press Simulate in Didi's view. The clock stops at 8 pm until you fill in and send her
-  note; then it carries on, and you can switch to the owner to place the order.
+Each journey ends on a "Kitchen ready for tomorrow" screen with a recap of the evening.
 
-The Simulate bar is a prototype tool, not part of the product.
+## Design principles applied
+
+From [Design principles for reducing cognitive load](https://lawsofux.com/articles/2015/design-principles-for-reducing-cognitive-load/):
+
+- **Avoid unnecessary elements:** Tonight shows one card with the one thing to do now; the cook's note, tomorrow's dish and turns are short secondary cards. The Turns tab was folded into Home (4 tabs, not 5).
+- **Common patterns:** bottom tab bar, phone and one-time-code sign-in with autofill, notification bell, progress steps.
+- **Eliminate unnecessary tasks:** defaults everywhere (quantities, dish suggestion, number and code filled in); only tonight's owner is ever asked to order.
+- **Minimise choices:** one primary button per state; less-used details ("Who's ordered this month", turn settings) open on request.
+- **Show choices as a group:** all ingredients and all usual dishes are visible at once.
+- **Readability:** body text 15–16 px, high contrast, plain sentences.
+- **Icons with labels:** every icon has a text label (tabs, list items, persona cards, buttons).
+
+From the [peak-end rule](https://lawsofux.com/peak-end-rule/):
+
+- **Peak:** placing the order is quick and confirmed straight away ("Done! Everyone in Quad 3 can see the order").
+- **End:** every journey closes on a celebratory "Kitchen ready for tomorrow" card with the evening's recap, your share of the bill and who orders tomorrow; the cook's closes on "All set for tomorrow!" in her language.
+- **Soften negatives:** reminders and missing-note messages are worded calmly, never as alarms.
 
 ## Run locally
 
@@ -85,7 +101,7 @@ npm run build    # output in dist/
 - `src/lib/logic.ts` — turns, the nightly cycle, the one list, dish suggestion, notifications (one reminder, owner only)
 - `src/lib/catalogue.ts`, `src/lib/i18n.ts` — ingredients with pictures and Hindi/Telugu names, the cook's wording
 - `src/lib/seed.ts` — the sample flat
-- `src/screens/` — `Auth`, `FlatStart`, `Home`, `Tabs` (List, Turns, Dishes, Flat), `Sheets` (add item, order), `Cook`
+- `src/screens/` — `Auth`, `FlatStart`, `Home`, `Tabs` (List, Dishes, Flat), `Sheets` (add item, order), `Cook`
 
 Stack: Vite 5, React 18, TypeScript, Vitest. Next step for a real launch: a backend for accounts and
 shared flat data (e.g. Supabase or Firebase) and real OTP.

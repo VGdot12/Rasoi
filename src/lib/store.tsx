@@ -1,16 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { addDays, autoNote, DEADLINES, eveningOrDraft, findEvening, fromMin, isoDate, newEvening, now, SIM, toMin } from './logic'
+import { DEADLINES, eveningOrDraft, findEvening, newEvening, now, SIM, simTick } from './logic'
 import { seedDB } from './seed'
 import type { DB, Evening, Flat, User } from './types'
 
-const KEY = 'rasoi-ready:app:v3'
+const KEY = 'rasoi-ready:app:v4'
 
 function load(): DB {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const db = JSON.parse(raw) as DB
-      if (db.version === 3) return db
+      if (db.version === 4) return db
     }
   } catch {
     /* storage unavailable */
@@ -48,8 +48,6 @@ interface Store {
     waitingForCook: boolean
     toggle: () => void
     resetEvening: () => void
-    nextEvening: () => void
-    viewAs: (userId: string) => void
   }
 }
 
@@ -72,29 +70,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!running) return
     const t = setInterval(() => {
-      update((d) => {
-        const c = d.clock ?? { date: isoDate(new Date()), time: SIM.start }
-        let next = fromMin(Math.min(toMin(SIM.end), toMin(c.time) + SIM.minutesPerSecond))
-        const viewer = d.users.find((u) => u.id === d.sessionUserId)
-        if (next >= DEADLINES.note) {
-          for (const f of d.flats) {
-            let e = findEvening(d, f.id, c.date)
-            if (e?.note || e?.skipped || e?.fallbackAnswered) continue
-            if (viewer?.role === 'cook' && viewer.flatId === f.id) {
-              // Didi's own flow: the clock stops at 8 pm until she sends her note.
-              next = DEADLINES.note
-              continue
-            }
-            // Flatmates' flow: Didi's note arrives on its own at 8 pm.
-            if (!e) {
-              e = newEvening(d, f, c.date)
-              d.evenings.push(e)
-            }
-            autoNote(d, f, e)
-          }
-        }
-        d.clock = { date: c.date, time: next }
-      })
+      update((d) => simTick(d))
     }, 1000)
     return () => clearInterval(t)
   }, [running, update])
@@ -145,12 +121,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRunning(!running)
     },
     resetEvening,
-    nextEvening: () => {
-      setRunning(false)
-      setWaitingForCook(false)
-      update((d) => void (d.clock = { date: addDays(now(d).date, 1), time: SIM.start }))
-    },
-    viewAs: (userId: string) => update((d) => void (d.sessionUserId = userId)),
   }
 
   const updateTonight = useCallback(

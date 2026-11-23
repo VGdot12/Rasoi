@@ -6,12 +6,11 @@ import { Auth } from './screens/Auth'
 import { CookApp } from './screens/Cook'
 import { FlatStart } from './screens/FlatStart'
 import { Home } from './screens/Home'
-import { DishesTab, FlatTab, ListTab, TurnsTab } from './screens/Tabs'
+import { DishesTab, FlatTab, ListTab } from './screens/Tabs'
 
 const TABS = [
   { id: 'home', label: 'Tonight', icon: '🌙' },
   { id: 'list', label: 'List', icon: '📝' },
-  { id: 'turns', label: 'Turns', icon: '🔁' },
   { id: 'dishes', label: 'Dishes', icon: '🍛' },
   { id: 'flat', label: 'Flat', icon: '🏠' },
 ]
@@ -57,7 +56,6 @@ function FlatmateShell() {
       <div className="app-scroll" key={tab}>
         {tab === 'home' && <Home goTo={setTab} />}
         {tab === 'list' && <ListTab />}
-        {tab === 'turns' && <TurnsTab />}
         {tab === 'dishes' && <DishesTab />}
         {tab === 'flat' && <FlatTab />}
       </div>

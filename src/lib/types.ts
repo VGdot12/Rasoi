@@ -73,7 +73,7 @@ export interface Evening {
 }
 
 export interface DB {
-  version: 3
+  version: 4
   users: User[]
   flats: Flat[]
   evenings: Evening[]

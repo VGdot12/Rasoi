@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Avatar, CopyBtn, QtyPicker, waShare } from '../components/ui'
 import { unitTypeOf } from '../lib/catalogue'
-import { addDays, buildList, DEADLINES, fairness, findEvening, firstName, fmtDay, fmtTime, nameOf, pasteList, upcomingTurns } from '../lib/logic'
+import { addDays, buildList, DEADLINES, findEvening, firstName, fmtDay, fmtTime, nameOf, pasteList } from '../lib/logic'
 import { useStore } from '../lib/store'
 import { AddItemSheet, OrderSheet } from './Sheets'
 
@@ -86,99 +86,6 @@ export function ListTab() {
 
       <AddItemSheet open={add} onClose={() => setAdd(false)} />
       <OrderSheet open={order} onClose={() => setOrder(false)} />
-    </div>
-  )
-}
-
-// ---------------- Turns ----------------
-
-export function TurnsTab() {
-  const { db, me, flat, tonight, today, update, updateTonight } = useStore()
-  const [handover, setHandover] = useState(false)
-  if (!me || !flat || !tonight) return null
-  const turns = upcomingTurns(db, flat, today, 7)
-  const fair = fairness(db, flat, today)
-  const fairShare = flat.memberIds.length ? 1 / flat.memberIds.length : 0
-  const isOwner = tonight.ownerId === me.id
-  const inTurn = flat.rotation.includes(me.id)
-
-  return (
-    <div className="screen">
-      <div className="hello">
-        <div>
-          <div className="muted small">One owner a night. Turns rotate on their own.</div>
-          <h2>Turns</h2>
-        </div>
-      </div>
-
-      <section className="card turns">
-        {turns.map((t, i) => (
-          <div key={t.date} className={`turn ${i === 0 ? 'turn-now' : ''}`}>
-            <span className="turn-day">{i === 0 ? 'Tonight' : fmtDay(t.date, today)}</span>
-            <Avatar name={nameOf(db, t.ownerId)} size={26} />
-            <span className="turn-who">{t.ownerId === me.id ? 'You' : nameOf(db, t.ownerId)}</span>
-            {i === 0 && tonight.ordered && <span className="tag tag-done">{tonight.received ? 'received' : 'order placed'}</span>}
-          </div>
-        ))}
-        {isOwner && !tonight.ordered && !tonight.skipped && (
-          <>
-            <button type="button" className="btn btn-outline btn-block" onClick={() => setHandover(!handover)}>Can't do tonight? Hand over</button>
-            {handover && (
-              <div className="chips">
-                {flat.memberIds.filter((id) => id !== me.id).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className="chip"
-                    onClick={() => { updateTonight((e) => { e.handedOverFrom = me.id; e.ownerId = id }); setHandover(false) }}
-                  >
-                    {nameOf(db, id)} takes tonight
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card-title">Who ordered, last 30 days</div>
-        <div className="fair">
-          {[...fair.counts.entries()].map(([id, n]) => {
-            const share = fair.total ? n / fair.total : 0
-            return (
-              <div key={id} className="fair-row">
-                <span className="fair-name">{id === me.id ? 'You' : nameOf(db, id)}</span>
-                <span className="bar big"><span style={{ width: `${share * 100}%` }} /><i style={{ left: `${fairShare * 100}%` }} title="Fair share" /></span>
-                <span className="fair-n">{n}</span>
-              </div>
-            )
-          })}
-        </div>
-        <p className="muted small">The line marks a fair share ({Math.round(fairShare * 100)}%). {fair.total} orders in total.</p>
-      </section>
-
-      <section className="card">
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={inTurn}
-            onChange={(e) =>
-              update((d) => {
-                const f = d.flats.find((x) => x.id === flat.id)!
-                f.rotation = e.target.checked ? [...f.rotation, me.id] : f.rotation.filter((x) => x !== me.id)
-              })
-            }
-          />
-          <span>
-            <strong>I take a turn ordering</strong>
-            <span className="muted small">Turn order: {flat.rotation.map((id) => (id === me.id ? 'you' : firstName(nameOf(db, id)))).join(' → ') || 'nobody yet'}</span>
-          </span>
-        </label>
-        {flat.memberIds.some((id) => !flat.rotation.includes(id)) && (
-          <p className="muted small">Not taking turns: {flat.memberIds.filter((id) => !flat.rotation.includes(id)).map((id) => nameOf(db, id)).join(', ')}</p>
-        )}
-      </section>
     </div>
   )
 }
@@ -307,7 +214,7 @@ export function FlatTab() {
         <p className="fine">We never order without you, and we don't deliver or take payments.</p>
       </section>
 
-      <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out</button>
+      <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out · choose another person</button>
     </div>
   )
 }

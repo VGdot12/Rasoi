@@ -33,6 +33,12 @@ const T = {
   received: { en: 'Order received. Everything is in the kitchen.', hi: 'सामान आ गया। सब रसोई में है।', te: 'సరుకులు వచ్చాయి. అన్నీ వంటగదిలో ఉన్నాయి.' },
   waitingOrder: { en: 'Not ordered yet', hi: 'अभी ऑर्डर नहीं हुआ', te: 'ఇంకా ఆర్డర్ కాలేదు' },
   tomorrowList: { en: 'Tomorrow’s list', hi: 'कल की लिस्ट', te: 'రేపటి జాబితా' },
+  allSet: { en: 'All set for tomorrow!', hi: 'कल के लिए सब तैयार!', te: 'రేపటికి అంతా సిద్ధం!' },
+  allSetSub: {
+    en: 'The order has arrived. Everything you asked for is in the kitchen.',
+    hi: 'सामान आ गया है। आपने जो माँगा था, सब रसोई में है।',
+    te: 'సరుకులు వచ్చాయి. మీరు అడిగినవన్నీ వంటగదిలో ఉన్నాయి.',
+  },
   dayOff: { en: 'Not coming tomorrow', hi: 'कल नहीं आऊँगी', te: 'రేపు రాను' },
 } as const
 

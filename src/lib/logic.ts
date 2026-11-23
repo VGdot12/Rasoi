@@ -42,6 +42,14 @@ export const DEADLINES = { prompt: '19:30', note: '20:00', list: '22:00' }
 /** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 3 minutes). */
 export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 3 }
 
+/** What happens on its own for the people you are not playing. */
+export const AUTO = {
+  orderAt: '23:00', // tonight's owner places the order by 11 pm
+  deliveryMins: 20, // "Order received" opens 20 minutes after the order is placed
+  receiveByRoommateView: '23:45', // in Rohan's journey, Aditya receives it at 11:45 if Rohan hasn't
+  receiveInCookView: '23:30', // in Didi's journey, the flat receives it at 11:30
+}
+
 export const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 export const fromMin = (n: number) => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`
 
@@ -166,15 +174,53 @@ export function stageOf(e: Evening, time: string): Stage {
   return 'list'
 }
 
+/** When the delivery can be marked as received. */
+export const receiveOpensAt = (e: Evening) => (e.ordered ? fromMin(toMin(e.ordered.at) + AUTO.deliveryMins) : '')
+
 /** The four milestones shown at the top of Tonight. */
 export function milestones(e: Evening, time: string) {
   const listOut = (!!e.note || e.fallbackAnswered) && (time >= DEADLINES.list || !!e.ordered)
   return [
     { k: 'Didi\u2019s note', done: !!e.note || e.fallbackAnswered, at: e.note?.at ?? '', due: DEADLINES.note },
     { k: 'List created', done: listOut, at: listOut ? DEADLINES.list : '', due: DEADLINES.list },
-    { k: 'Order placed', done: !!e.ordered, at: e.ordered?.at ?? '', due: '' },
-    { k: 'Order received', done: !!e.received, at: e.received?.at ?? '', due: '' },
+    { k: 'Order placed', done: !!e.ordered, at: e.ordered?.at ?? '', due: AUTO.orderAt },
+    { k: 'Order received', done: !!e.received, at: e.received?.at ?? '', due: AUTO.receiveByRoommateView },
   ]
+}
+
+/**
+ * One tick of the simulation clock. Everyone you are not playing acts on their own:
+ * Didi's note at 8 pm (in her journey the clock waits for you instead), the owner's order at 11 pm,
+ * and the delivery being received (11:45 pm in Rohan's journey, 11:30 pm in Didi's).
+ */
+export function simTick(d: DB) {
+  const c = d.clock ?? { date: isoDate(new Date()), time: SIM.start }
+  let next = fromMin(Math.min(toMin(SIM.end), toMin(c.time) + SIM.minutesPerSecond))
+  const viewer = d.users.find((u) => u.id === d.sessionUserId)
+  for (const f of d.flats) {
+    if (viewer?.flatId !== f.id) continue
+    let e = findEvening(d, f.id, c.date)
+    if (e?.skipped) continue
+    if (!e) {
+      e = newEvening(d, f, c.date)
+      d.evenings.push(e)
+    }
+    const isCook = viewer.role === 'cook'
+    const isOwner = viewer.id === e.ownerId
+    if (next >= DEADLINES.note && !e.note && !e.fallbackAnswered) {
+      if (isCook) next = DEADLINES.note // her journey: wait for her note
+      else autoNote(d, f, e)
+    }
+    if (next >= AUTO.orderAt && !e.ordered && !isOwner && buildList(e).length) {
+      e.ordered = { by: e.ownerId, at: AUTO.orderAt, app: 'Blinkit', amount: 540 }
+    }
+    if (e.ordered && !e.received && !isOwner) {
+      const at = isCook ? AUTO.receiveInCookView : AUTO.receiveByRoommateView
+      const by = isCook ? f.memberIds.find((id) => id !== e!.ownerId) ?? e.ownerId : e.ownerId
+      if (next >= at && at >= receiveOpensAt(e)) e.received = { by, at }
+    }
+  }
+  d.clock = { date: c.date, time: next }
 }
 
 export const finalDish = (e: Evening) => e.dish || (e.suggestionAnswer === 'accepted' ? e.suggestion : '')
@@ -226,14 +272,6 @@ export function notificationsFor(db: DB, user: User, flat: Flat): Note[] {
   if (e.ordered) out.push({ id: 'ord', at: e.ordered.at, title: `Order placed by ${firstName(nameOf(db, e.ordered.by))}`, body: `On ${e.ordered.app}, ${lines.length} items for tomorrow.`, tone: 'done' })
   if (e.received) out.push({ id: 'rcv', at: e.received.at, title: `Order received`, body: `${firstName(nameOf(db, e.received.by))} received it. Everything is in the kitchen for tomorrow.`, tone: 'done' })
   return out.sort((a, b) => (a.at < b.at ? 1 : -1))
-}
-
-/** The three views of the prototype: tonight's owner, the cook, and another roommate. */
-export function variants(db: DB, flat: Flat) {
-  const { date } = now(db)
-  const ownerId = eveningOrDraft(db, flat, date).ownerId
-  const roommate = flat.memberIds.find((id) => id !== ownerId) ?? null
-  return { owner: ownerId || null, cook: flat.cookId, roommate }
 }
 
 // ---------- people ----------

@@ -120,7 +120,7 @@ export function OrderSheet({ open, onClose }: { open: boolean; onClose: () => vo
       <Sheet open={open} onClose={onClose} title="Order placed">
         <div className="done-mark">✓</div>
         <p className="center">
-          <strong>{nameOf(db, tonight.ordered.by)}</strong> placed the order on {tonight.ordered.app}. Everyone in the flat can see it.
+          <strong>{tonight.ordered.by === me.id ? 'Done!' : nameOf(db, tonight.ordered.by)}</strong> Everyone in {flat.name} can see the order is placed on {tonight.ordered.app}. It should arrive in about 20 minutes.
         </p>
         {tonight.ordered.amount ? (
           <div className="split">
