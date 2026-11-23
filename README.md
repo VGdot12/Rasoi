@@ -11,18 +11,20 @@ A mobile-first web app for the two people in the job: **flatmates** (our primary
 
 ## How it works
 
-1. **The cook's evening note.** Each evening the cook answers three questions in Hindi, Telugu or English,
+1. **The cook's evening note (by 8 pm).** The cook answers three questions in Hindi, Telugu or English,
    by tapping pictures or recording a voice note: *Did today have everything? What will you make tomorrow?
    What is running out?* On the flat's staples day she also checks atta, rice, oil and dal.
-2. **One clean list.** Her items and anything a flatmate adds merge into one list with quantities, so an
-   item is bought once, not twice.
-3. **One named owner.** Turns rotate on their own. Only tonight's owner orders, and only they get one
-   reminder at 10 pm, never a second. They copy the list into Blinkit, Zepto or Instamart, order, and tap
-   **Ordered**. The bill can be split per flatmate and sent to Splitwise.
-4. **Checked the next evening.** The cook's next note says whether she had everything.
+2. **List created (10 pm).** Her items and anything a flatmate adds merge into one list. Every item has a
+   quantity picked from dropdowns: g (50, 100, 250, 500) or kg (1–5) for solids, ml (50, 100, 250, 500) or
+   L (1–5) for liquids, Nos (1–12) for things you count, such as eggs, lemons and bread.
+3. **Order placed.** Only tonight's owner orders. From 10 pm they see a reminder that stays until they place
+   the order in Blinkit, Zepto or Instamart and tap **Order placed**. Everyone in the flat sees it. The bill
+   can be split per flatmate and sent to Splitwise.
+4. **Order received.** When the delivery arrives, any flatmate taps **Order received**.
 
-If the cook hasn't sent her note by 8 pm, tonight's owner is asked what's low instead. If she hasn't named
-a dish, the app suggests one from the flat's 10–15 usual dishes that hasn't been made this week.
+These four milestones are shown at the top of the Tonight screen. If the cook hasn't sent her note by 8 pm,
+tonight's owner is asked what's low instead. If she hasn't named a dish, the app suggests one from the
+flat's usual dishes.
 
 ## Screens
 
@@ -43,11 +45,21 @@ track pantry stock or scan barcodes, show spend dashboards.
 ## Trying the prototype
 
 There is no backend yet: data is kept in the browser, and login codes are not really sent (any 4 digits
-work). A sample flat, **Quad 3** (Rohan, Aditya, Karan and Sunita didi), comes with two weeks of history.
+work). The sample flat **Quad 3** (Rohan, Aditya, Karan and Sunita didi) has two weeks of history.
 
-- On the login screen tap a sample account, or sign up with any other number and create your own flat.
-- **Prototype controls** above the phone move the clock through the evening (6 pm, 8:30, 9:15, 10:15,
-  next day) and switch between people, so one person can play the whole flat. They are not part of the product.
+On the login screen pick one of the three views: **Tonight's owner**, **Roommate** or **Didi**. Inside the
+app, the dark **Simulate** bar runs the evening from 7:30 pm to midnight at 20 seconds per hour, and lets you
+switch between the three views at any time. ↺ restarts the evening; ⏭ moves to the next evening (turns rotate).
+
+There are two flows:
+
+- **Flatmate flow** (Tonight's owner or Roommate): press Simulate. Didi's note arrives on its own at 8 pm, the
+  list is created at 10 pm and the owner's reminder appears. As the owner, tap **Order now → Order placed**.
+  Switch to Roommate (or stay) and tap **Order received**.
+- **Didi's flow**: press Simulate in Didi's view. The clock stops at 8 pm until you fill in and send her
+  note; then it carries on, and you can switch to the owner to place the order.
+
+The Simulate bar is a prototype tool, not part of the product.
 
 ## Run locally
 

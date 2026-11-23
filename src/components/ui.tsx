@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { AMOUNTS, formatQty, parseQty, UNITS_FOR, type Unit, type UnitType } from '../lib/qty'
 
 export function Sheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
   useEffect(() => {
@@ -128,5 +129,21 @@ export function Recorder({ onDone, labels }: { onDone: (url: string, secs: numbe
       <span className="mic-dot">🎤</span>
       <span>{rec ? `${labels.stop} · 0:${String(secs).padStart(2, '0')}` : labels.start}</span>
     </button>
+  )
+}
+
+/** Quantity as two dropdowns: unit, then amount for that unit. */
+export function QtyPicker({ value, type, onChange, disabled, label }: { value: string; type: UnitType; onChange: (q: string) => void; disabled?: boolean; label: string }) {
+  const q = parseQty(value, type)
+  const units = UNITS_FOR[type]
+  return (
+    <span className="qty-pick">
+      <select aria-label={`${label} amount`} disabled={disabled} value={q.amount} onChange={(e) => onChange(formatQty({ unit: q.unit, amount: Number(e.target.value) }))}>
+        {AMOUNTS[q.unit].map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+      <select aria-label={`${label} unit`} disabled={disabled || units.length < 2} value={q.unit} onChange={(e) => { const u = e.target.value as Unit; onChange(formatQty({ unit: u, amount: AMOUNTS[u][u === 'g' || u === 'ml' ? 2 : 0] })) }}>
+        {units.map((u) => <option key={u} value={u}>{u}</option>)}
+      </select>
+    </span>
   )
 }

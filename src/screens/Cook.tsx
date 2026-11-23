@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Milestones, SimBar } from '../components/Sim'
 import { Recorder, VoiceNote } from '../components/ui'
 import { INGREDIENTS, nameOf as ingName, STAPLE_KEYS, type Lang } from '../lib/catalogue'
 import { t } from '../lib/i18n'
@@ -47,6 +48,8 @@ export function CookApp() {
   }
 
   const header = (
+    <>
+    <SimBar />
     <div className="cook-head">
       <div>
         <div className="cook-hello">{L('greeting')}, {firstName(me.name)} 🙏</div>
@@ -60,6 +63,8 @@ export function CookApp() {
         ))}
       </div>
     </div>
+    <Milestones />
+    </>
   )
 
   if (existing && !editing) {
@@ -81,7 +86,7 @@ export function CookApp() {
           </div>
           {existing.voiceSecs > 0 && <VoiceNote url={existing.voiceUrl} secs={existing.voiceSecs} />}
           <p className={`order-status ${tonight.ordered ? 'ok' : ''}`}>
-            {tonight.ordered ? `✓ ${L('ordered')} ${firstName(nameOf(db, tonight.ordered.by))}` : `⏳ ${L('waitingOrder')}`}
+            {tonight.received ? `✅ ${L('received')}` : tonight.ordered ? `🛵 ${L('ordered')}: ${firstName(nameOf(db, tonight.ordered.by))}` : `⏳ ${L('waitingOrder')}`}
           </p>
         </section>
         <button type="button" className="btn btn-outline btn-block" onClick={() => setEditing(true)}>{L('edit')}</button>

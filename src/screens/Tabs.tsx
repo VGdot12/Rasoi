@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Avatar, CopyBtn, waShare } from '../components/ui'
-import { addDays, buildList, fairness, findEvening, firstName, fmtDay, fmtTime, nameOf, pasteList, upcomingTurns } from '../lib/logic'
+import { Avatar, CopyBtn, QtyPicker, waShare } from '../components/ui'
+import { unitTypeOf } from '../lib/catalogue'
+import { addDays, buildList, DEADLINES, fairness, findEvening, firstName, fmtDay, fmtTime, nameOf, pasteList, upcomingTurns } from '../lib/logic'
 import { useStore } from '../lib/store'
 import { AddItemSheet, OrderSheet } from './Sheets'
 
@@ -9,7 +10,7 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 // ---------------- List ----------------
 
 export function ListTab() {
-  const { db, me, flat, tonight, today, updateTonight } = useStore()
+  const { db, me, flat, tonight, today, time, updateTonight } = useStore()
   const [add, setAdd] = useState(false)
   const [order, setOrder] = useState(false)
   if (!me || !flat || !tonight) return null
@@ -45,14 +46,7 @@ export function ListTab() {
                   {l.name}
                   <span className="muted small">{l.addedBy === 'cook' ? flat.cookName : l.addedBy === me.id ? 'you' : firstName(nameOf(db, l.addedBy))}</span>
                 </span>
-                <input
-                  className="qty"
-                  value={l.qty}
-                  disabled={locked}
-                  aria-label={`Quantity of ${l.name}`}
-                  placeholder="qty"
-                  onChange={(e) => updateTonight((ev) => void (ev.qtyEdits[l.key] = e.target.value))}
-                />
+                <QtyPicker label={l.name} value={l.qty} type={unitTypeOf(l.key)} disabled={locked} onChange={(v) => updateTonight((ev) => { ev.qtyEdits[l.key] = v; const x = ev.extras.find((y) => y.key === l.key); if (x) x.qty = v })} />
                 {!locked && (
                   <button type="button" className="icon-btn" aria-label={`Remove ${l.name}`} onClick={() => updateTonight((ev) => { ev.removed.push(l.key); ev.extras = ev.extras.filter((x) => x.key !== l.key) })}>✕</button>
                 )}
@@ -65,7 +59,9 @@ export function ListTab() {
       {lines.length > 0 && !tonight.skipped && (
         <section className="card">
           {locked ? (
-            <p>✓ Ordered by <strong>{tonight.ordered!.by === me.id ? 'you' : nameOf(db, tonight.ordered!.by)}</strong> on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}. The list is closed for tonight.</p>
+            <p>✓ Order placed by <strong>{tonight.ordered!.by === me.id ? 'you' : nameOf(db, tonight.ordered!.by)}</strong> on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}.{tonight.received ? ` Received by ${tonight.received.by === me.id ? 'you' : firstName(nameOf(db, tonight.received.by))}.` : ''} The list is closed for tonight.</p>
+          ) : time < DEADLINES.list ? (
+            <p className="muted">The list goes out at {fmtTime(DEADLINES.list)}. {isOwner ? 'You order tonight, once it is out.' : `${firstName(nameOf(db, tonight.ownerId))} orders tonight.`} Until then anyone can add.</p>
           ) : isOwner ? (
             <>
               <p>You're tonight's owner. One order, everything on it.</p>
@@ -121,7 +117,7 @@ export function TurnsTab() {
             <span className="turn-day">{i === 0 ? 'Tonight' : fmtDay(t.date, today)}</span>
             <Avatar name={nameOf(db, t.ownerId)} size={26} />
             <span className="turn-who">{t.ownerId === me.id ? 'You' : nameOf(db, t.ownerId)}</span>
-            {i === 0 && tonight.ordered && <span className="tag tag-done">ordered</span>}
+            {i === 0 && tonight.ordered && <span className="tag tag-done">{tonight.received ? 'received' : 'order placed'}</span>}
           </div>
         ))}
         {isOwner && !tonight.ordered && !tonight.skipped && (

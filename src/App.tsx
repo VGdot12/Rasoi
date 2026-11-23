@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { DemoBar } from './components/DemoBar'
 import { Sheet } from './components/ui'
 import { fmtTime, notificationsFor } from './lib/logic'
 import { useStore } from './lib/store'
@@ -21,7 +20,6 @@ export default function App() {
   const { me, flat } = useStore()
   return (
     <div className="stage">
-      <DemoBar />
       <div className="device">
         {!me ? <Auth /> : !flat ? <FlatStart /> : me.role === 'cook' ? <CookShell /> : <FlatmateShell key={me.id} />}
       </div>

@@ -1,4 +1,4 @@
-import { byKey } from './catalogue'
+import { byKey, INGREDIENTS } from './catalogue'
 import type { DB, Evening, Flat, ListLine, User } from './types'
 
 // ---------- time ----------
@@ -24,7 +24,7 @@ export const weekday = (date: string) => new Date(date + 'T12:00:00').getDay()
 export const fmtTime = (t: string) => {
   if (!t) return ''
   const [h, m] = t.split(':').map(Number)
-  const ap = h >= 12 ? 'pm' : 'am'
+  const ap = h >= 12 && h < 24 ? 'pm' : 'am'
   return `${((h + 11) % 12) + 1}:${pad(m)} ${ap}`
 }
 
@@ -35,7 +35,15 @@ export const fmtDay = (date: string, today: string) => {
   return new Date(date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-export const DEADLINES = { prompt: '17:30', note: '20:00', list: '21:00', nudge: '22:00' }
+/** The evening: Didi's note at 8 pm, the list goes out at 10 pm with a reminder to tonight's owner
+ *  that stays until the order is placed. */
+export const DEADLINES = { prompt: '19:30', note: '20:00', list: '22:00' }
+
+/** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 3 minutes). */
+export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 3 }
+
+export const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+export const fromMin = (n: number) => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`
 
 // ---------- ids ----------
 
@@ -72,6 +80,7 @@ export function newEvening(db: DB, flat: Flat, date: string): Evening {
     suggestionAnswer: null,
     fallbackAnswered: false,
     ordered: null,
+    received: null,
     nudgeSeenAt: null,
     skipped: false,
   }
@@ -130,7 +139,7 @@ export function buildList(e: Evening): Line[] {
   const add = (key: string, addedBy: string, qty?: string) => {
     if (e.removed.includes(key)) return
     if (lines.some((l) => l.key === key)) return // bought once, not twice
-    lines.push({ key, addedBy, qty: e.qtyEdits[key] ?? qty ?? byKey(key)?.qty ?? '' })
+    lines.push({ key, addedBy, qty: e.qtyEdits[key] || qty || byKey(key)?.qty || '1 Nos' })
   }
   e.note?.items.forEach((k) => add(k, 'cook'))
   e.extras.forEach((x) => add(x.key, x.addedBy, x.qty))
@@ -144,20 +153,47 @@ export const pasteList = (lines: Line[]) => lines.map((l) => `${l.name} ${l.qty}
 
 // ---------- where tonight stands ----------
 
-export type Stage = 'skipped' | 'before-note' | 'no-note' | 'list' | 'nudged' | 'ordered'
+export type Stage = 'skipped' | 'before-note' | 'no-note' | 'collecting' | 'list' | 'ordered' | 'received'
 
 export function stageOf(e: Evening, time: string): Stage {
   if (e.skipped) return 'skipped'
+  if (e.received) return 'received'
   if (e.ordered) return 'ordered'
-  if (!e.note && time < DEADLINES.note) return 'before-note'
-  if (!e.note && !e.fallbackAnswered) return 'no-note'
-  if (time >= DEADLINES.nudge) return 'nudged'
+  const noteIn = !!e.note || e.fallbackAnswered
+  if (!noteIn && time < DEADLINES.note) return 'before-note'
+  if (!noteIn) return 'no-note'
+  if (time < DEADLINES.list) return 'collecting'
   return 'list'
+}
+
+/** The four milestones shown at the top of Tonight. */
+export function milestones(e: Evening, time: string) {
+  const listOut = (!!e.note || e.fallbackAnswered) && (time >= DEADLINES.list || !!e.ordered)
+  return [
+    { k: 'Didi\u2019s note', done: !!e.note || e.fallbackAnswered, at: e.note?.at ?? '', due: DEADLINES.note },
+    { k: 'List created', done: listOut, at: listOut ? DEADLINES.list : '', due: DEADLINES.list },
+    { k: 'Order placed', done: !!e.ordered, at: e.ordered?.at ?? '', due: '' },
+    { k: 'Order received', done: !!e.received, at: e.received?.at ?? '', due: '' },
+  ]
 }
 
 export const finalDish = (e: Evening) => e.dish || (e.suggestionAnswer === 'accepted' ? e.suggestion : '')
 
-// ---------- notifications (derived, so there is never a second nudge) ----------
+/** In the simulation, Didi's note arrives at 8 pm if she has not sent one herself. */
+export function autoNote(db: DB, flat: Flat, e: Evening) {
+  const seed = toMin(db.clock?.time ?? '20:00') + e.date.split('-').reduce((n, x) => n + Number(x), 0)
+  const daily = INGREDIENTS.filter((i) => !i.staple)
+  const items: string[] = []
+  for (let k = 0; items.length < 3 && k < daily.length; k++) {
+    const key = daily[(seed + k * 7) % daily.length].key
+    if (!items.includes(key)) items.push(key)
+  }
+  const dish = e.suggestion || flat.usualDishes[seed % Math.max(1, flat.usualDishes.length)] || ''
+  e.note = { at: DEADLINES.note, todayAllGood: true, todayMissing: [], dish, items, voiceUrl: '', voiceSecs: 19, staplesChecked: false, dayOffTomorrow: false }
+  if (dish) { e.dish = dish; e.dishSource = 'cook' }
+}
+
+// ---------- notifications ----------
 
 export interface Note {
   id: string
@@ -173,28 +209,31 @@ export function notificationsFor(db: DB, user: User, flat: Flat): Note[] {
   const owner = nameOf(db, e.ownerId)
   const lines = buildList(e)
   const out: Note[] = []
-  if (e.skipped) return [{ id: 'skip', at: '17:00', title: 'No cook tomorrow', body: 'Nobody orders tonight. Turns do not move.', tone: 'info' }]
+  if (e.skipped) return [{ id: 'skip', at: DEADLINES.prompt, title: 'No cook tomorrow', body: 'Nobody orders tonight. Turns do not move.', tone: 'info' }]
+  const listOut = (!!e.note || e.fallbackAnswered) && time >= DEADLINES.list
   if (user.role === 'cook') {
     if (time >= DEADLINES.prompt && !e.note)
-      out.push({ id: 'prompt', at: DEADLINES.prompt, title: `${flat.name}`, body: 'Didi, kal kya banana hai aur kya khatam ho raha hai? Ek voice note bhej dijiye.', tone: 'action' })
-    if (e.ordered) out.push({ id: 'ord', at: e.ordered.at, title: 'Ordered', body: `${nameOf(db, e.ordered.by)} ordered tomorrow's list.`, tone: 'done' })
-    return out
+      out.push({ id: 'prompt', at: DEADLINES.prompt, title: flat.name, body: 'Didi, kal kya banana hai aur kya khatam ho raha hai? Ek voice note bhej dijiye.', tone: 'action' })
+  } else {
+    if (e.note) out.push({ id: 'note', at: e.note.at, title: `${flat.cookName} sent tomorrow's note`, body: e.note.todayAllGood === false ? `Today something was missing: ${e.note.todayMissing.join(', ') || 'not named'}.` : 'Today she had everything.', tone: 'info' })
+    if (!e.note && time >= DEADLINES.note && user.id === e.ownerId && !e.fallbackAnswered)
+      out.push({ id: 'fallback', at: DEADLINES.note, title: 'Didi\u2019s note has not come in', body: `You are tonight's owner. If tomorrow is ${e.suggestion || 'the usual'}, what is low?`, tone: 'action' })
+    if (listOut)
+      out.push({ id: 'list', at: DEADLINES.list, title: 'List created', body: `Tomorrow: ${finalDish(e) || 'not decided'}. Needed: ${lines.map((l) => `${l.name.toLowerCase()} ${l.qty}`).join(', ') || 'nothing'}. Owner tonight: ${owner}.`, tone: 'info' })
+    if (listOut && !e.ordered && lines.length && user.id === e.ownerId)
+      out.push({ id: 'remind', at: DEADLINES.list, title: 'Reminder: place tonight\u2019s order', body: `${user.name}, you are tonight's owner. Tap \u2018Order placed\u2019 once it is done.`, tone: 'action' })
   }
-  if (e.note) out.push({ id: 'note', at: e.note.at, title: `${flat.cookName} sent tomorrow's note`, body: e.note.todayAllGood === false ? `Today something was missing: ${e.note.todayMissing.join(', ') || 'not named'}.` : 'Today she had everything.', tone: 'info' })
-  if (!e.note && time >= DEADLINES.note && user.id === e.ownerId && !e.fallbackAnswered)
-    out.push({ id: 'fallback', at: DEADLINES.note, title: 'Didi’s note has not come in', body: `You are tonight's owner. If tomorrow is ${e.suggestion || 'the usual'}, what is low?`, tone: 'action' })
-  if ((e.note || e.fallbackAnswered) && time >= DEADLINES.list)
-    out.push({
-      id: 'list',
-      at: DEADLINES.list,
-      title: 'Tomorrow’s list',
-      body: `Tomorrow: ${finalDish(e) || 'not decided'}. Needed: ${lines.map((l) => `${l.name.toLowerCase()} ${l.qty}`).join(', ') || 'nothing'}. Owner tonight: ${owner}.`,
-      tone: 'info',
-    })
-  if (!e.ordered && lines.length && time >= DEADLINES.nudge && user.id === e.ownerId)
-    out.push({ id: 'nudge', at: DEADLINES.nudge, title: 'One reminder', body: `${user.name}, you are tonight's owner. Tap ‘ordered’ once it is placed.`, tone: 'action' })
-  if (e.ordered) out.push({ id: 'ord', at: e.ordered.at, title: `${nameOf(db, e.ordered.by)} ordered on ${e.ordered.app}`, body: `${lines.length} items for tomorrow. Nothing else to do tonight.`, tone: 'done' })
+  if (e.ordered) out.push({ id: 'ord', at: e.ordered.at, title: `Order placed by ${firstName(nameOf(db, e.ordered.by))}`, body: `On ${e.ordered.app}, ${lines.length} items for tomorrow.`, tone: 'done' })
+  if (e.received) out.push({ id: 'rcv', at: e.received.at, title: `Order received`, body: `${firstName(nameOf(db, e.received.by))} received it. Everything is in the kitchen for tomorrow.`, tone: 'done' })
   return out.sort((a, b) => (a.at < b.at ? 1 : -1))
+}
+
+/** The three views of the prototype: tonight's owner, the cook, and another roommate. */
+export function variants(db: DB, flat: Flat) {
+  const { date } = now(db)
+  const ownerId = eveningOrDraft(db, flat, date).ownerId
+  const roommate = flat.memberIds.find((id) => id !== ownerId) ?? null
+  return { owner: ownerId || null, cook: flat.cookId, roommate }
 }
 
 // ---------- people ----------

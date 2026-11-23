@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Lang } from '../lib/catalogue'
-import { uid } from '../lib/logic'
-import { DEMO_PHONES } from '../lib/seed'
+import { nameOf, uid, variants } from '../lib/logic'
+import { DEMO_CODE } from '../lib/seed'
 import { useStore } from '../lib/store'
 import type { Role } from '../lib/types'
 
@@ -16,6 +16,18 @@ export function Auth() {
   const [role, setRole] = useState<Role>('flatmate')
   const [lang, setLang] = useState<Lang>('hi')
   const digits = phone.replace(/\D/g, '').slice(-10)
+
+  // The three views: tonight's owner, another roommate, and the cook.
+  const sampleFlat = db.flats.find((f) => f.code === DEMO_CODE)
+  const v = sampleFlat ? variants(db, sampleFlat) : null
+  const phoneOf = (id: string | null) => db.users.find((u) => u.id === id)?.phone ?? ''
+  const samples = v
+    ? [
+        { label: `Tonight's owner · ${nameOf(db, v.owner ?? '')}`, phone: phoneOf(v.owner) },
+        { label: `Roommate · ${nameOf(db, v.roommate ?? '')}`, phone: phoneOf(v.roommate) },
+        { label: `Didi · ${nameOf(db, v.cook ?? '')}`, phone: phoneOf(v.cook) },
+      ].filter((x) => x.phone)
+    : []
 
   const verify = () => {
     const existing = db.users.find((u) => u.phone === digits)
@@ -73,9 +85,9 @@ export function Auth() {
         <div className="demo-accounts">
           <div className="muted small">Prototype: try a sample account in the flat "Quad 3"</div>
           <div className="row wrap gap8">
-            <button type="button" className="chip" onClick={() => setPhone(DEMO_PHONES.rohan)}>Rohan · flatmate</button>
-            <button type="button" className="chip" onClick={() => setPhone(DEMO_PHONES.aditya)}>Aditya · flatmate</button>
-            <button type="button" className="chip" onClick={() => setPhone(DEMO_PHONES.cook)}>Sunita didi · cook</button>
+            {samples.map((x) => (
+              <button key={x.label} type="button" className="chip" onClick={() => setPhone(x.phone)}>{x.label}</button>
+            ))}
           </div>
         </div>
       </div>
