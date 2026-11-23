@@ -66,12 +66,14 @@ export interface Evening {
   suggestionAnswer: 'accepted' | 'changed' | null
   fallbackAnswered: boolean
   ordered: { by: string; at: string; app: OrderApp; amount: number | null } | null
+  /** Any flatmate taps "Order received" when the delivery arrives. */
+  received: { by: string; at: string } | null
   nudgeSeenAt: string | null
   skipped: boolean // cook's day off: nobody orders, the turn does not move
 }
 
 export interface DB {
-  version: 2
+  version: 3
   users: User[]
   flats: Flat[]
   evenings: Evening[]

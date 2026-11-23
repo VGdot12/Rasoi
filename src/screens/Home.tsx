@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Milestones, SimBar } from '../components/Sim'
 import { Avatar, VoiceNote } from '../components/ui'
 import { nameOf as ingName } from '../lib/catalogue'
 import { addDays, buildList, DEADLINES, eveningOrDraft, fairness, finalDish, firstName, fmtTime, nameOf, stageOf, weekReady } from '../lib/logic'
@@ -21,26 +22,25 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
   const week = weekReady(db, flat, today)
   const fair = fairness(db, flat, today)
   const tomorrowOwner = eveningOrDraft(db, flat, addDays(today, 1))
-  const hour = Number(time.slice(0, 2))
-  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-
-  const steps = [
-    { k: 'Didi’s note', done: !!note || tonight.fallbackAnswered, sub: note ? fmtTime(note.at) : 'by 8 pm' },
-    { k: 'One list', done: (!!note || tonight.fallbackAnswered) && lines.length > 0, sub: `${lines.length} items` },
-    { k: `${owner} orders`, done: !!tonight.ordered, sub: tonight.ordered ? tonight.ordered.app : 'tonight' },
-    { k: 'All there', done: false, sub: 'tomorrow' },
-  ]
+  const who = (id: string) => (id === me.id ? 'You' : firstName(nameOf(db, id)))
+  const emojiRow = (
+    <div className="emoji-row" onClick={() => goTo('list')}>
+      {lines.slice(0, 8).map((l) => <span key={l.key} title={`${l.name} ${l.qty}`}>{l.emoji}</span>)}
+      {lines.length > 8 && <span className="more">+{lines.length - 8}</span>}
+    </div>
+  )
 
   return (
     <div className="screen">
+      <SimBar />
       <div className="hello">
         <div>
-          <div className="muted small">{greet}, {me.name}</div>
+          <div className="muted small">{isOwner ? 'You order tonight' : `Hi ${me.name}`}</div>
           <h2>Tonight in {flat.name}</h2>
         </div>
       </div>
+      <Milestones />
 
-      {/* The one thing to do right now */}
       <section className={`hero-card stage-${stage} ${isOwner ? 'is-owner' : ''}`}>
         <div className="owner-line">
           <Avatar name={nameOf(db, tonight.ownerId)} size={28} />
@@ -52,67 +52,73 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
 
         {stage === 'before-note' && (
           <>
-            <p className="hero-text">Waiting for {flat.cookName}'s note. She'll say tomorrow's dish and what's running out, usually by {fmtTime(DEADLINES.note)}.</p>
+            <p className="hero-text">Waiting for {flat.cookName}'s note. She'll say tomorrow's dish and what's running out by {fmtTime(DEADLINES.note)}.</p>
             <button type="button" className="btn btn-ghost" onClick={() => setAdd(true)}>+ Noticed something low? Add it</button>
           </>
         )}
 
-        {stage === 'no-note' && (
-          isOwner ? (
+        {stage === 'no-note' &&
+          (isOwner ? (
             <>
               <p className="hero-text">{flat.cookName}'s note hasn't come in. If tomorrow is <strong>{tonight.suggestion || 'the usual'}</strong>, what's low?</p>
               <div className="row gap8 wrap">
                 <button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add what's low</button>
-                <button type="button" className="btn btn-outline" disabled={!lines.length} onClick={() => updateTonight((e) => void (e.fallbackAnswered = true))}>The list is ready</button>
+                <button type="button" className="btn btn-outline" disabled={!lines.length} onClick={() => updateTonight((e) => void (e.fallbackAnswered = true))}>That's everything</button>
               </div>
             </>
           ) : (
             <p className="hero-text">{flat.cookName}'s note hasn't come in. {owner} will add what's low tonight. You can add too.</p>
-          )
-        )}
+          ))}
 
-        {(stage === 'list' || stage === 'nudged') && (
+        {stage === 'collecting' && (
           <>
-            {stage === 'nudged' && isOwner && <div className="nudge-banner">⏰ One reminder: tap "Ordered" once it's placed.</div>}
             <p className="hero-text">
-              Tomorrow: <strong>{dish || 'dish not decided'}</strong> · {lines.length} {lines.length === 1 ? 'item' : 'items'} needed
+              {flat.cookName}'s note is in. Tomorrow: <strong>{dish || 'dish not decided'}</strong>. The list goes out at {fmtTime(DEADLINES.list)}, so add anything else you need now.
             </p>
-            <div className="emoji-row" onClick={() => goTo('list')}>
-              {lines.slice(0, 8).map((l) => <span key={l.key} title={l.name}>{l.emoji}</span>)}
-              {lines.length > 8 && <span className="more">+{lines.length - 8}</span>}
-            </div>
-            {isOwner ? (
-              <button type="button" className="btn btn-primary btn-block" disabled={!lines.length} onClick={() => setOrder(true)}>{lines.length ? 'Order now' : 'Nothing to order'}</button>
-            ) : (
-              <p className="muted small">Only {owner} orders tonight, so nothing is bought twice. You can still add items.</p>
-            )}
+            {emojiRow}
+            <button type="button" className="btn btn-ghost" onClick={() => setAdd(true)}>+ Add to the list</button>
           </>
         )}
+
+        {stage === 'list' &&
+          (isOwner ? (
+            <>
+              <div className="nudge-banner">⏰ Reminder: you're tonight's owner. Place the order, then tap "Order placed".</div>
+              <p className="hero-text">List created: <strong>{lines.length} {lines.length === 1 ? 'item' : 'items'}</strong> for {dish || 'tomorrow'}.</p>
+              {emojiRow}
+              <button type="button" className="btn btn-primary btn-block" disabled={!lines.length} onClick={() => setOrder(true)}>{lines.length ? 'Order now' : 'Nothing to order'}</button>
+            </>
+          ) : (
+            <>
+              <p className="hero-text">List created: {lines.length} items for {dish || 'tomorrow'}. <strong>{owner}</strong> is placing the order.</p>
+              {emojiRow}
+              <p className="muted small">Only {owner} orders tonight, so nothing is bought twice.</p>
+            </>
+          ))}
 
         {stage === 'ordered' && (
           <>
             <p className="hero-text">
-              ✓ <strong>{tonight.ordered!.by === me.id ? 'You' : firstName(nameOf(db, tonight.ordered!.by))}</strong> ordered on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}. Tomorrow is sorted.
+              🛵 Order placed by <strong>{who(tonight.ordered!.by)}</strong> on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}.
             </p>
-            {tonight.ordered!.amount ? (
-              <p className="muted small">₹{tonight.ordered!.amount} · ₹{Math.round(tonight.ordered!.amount / flat.memberIds.length)} each <button type="button" className="link" onClick={() => setOrder(true)}>Split</button></p>
-            ) : null}
-            <p className="muted small">Tomorrow's owner: {tomorrowOwner.ownerId === me.id ? 'you' : firstName(nameOf(db, tomorrowOwner.ownerId))}</p>
+            {tonight.ordered!.amount ? <p className="muted small">₹{tonight.ordered!.amount} · ₹{Math.round(tonight.ordered!.amount / flat.memberIds.length)} each</p> : null}
+            <button type="button" className="btn btn-primary btn-block" onClick={() => updateTonight((e, d) => void (e.received = { by: me.id, at: d.clock?.time ?? time }))}>
+              ✓ Order received
+            </button>
+            <p className="muted small">Anyone in the flat can tap this when the delivery arrives.</p>
           </>
         )}
 
-        <ol className="progress">
-          {steps.map((s) => (
-            <li key={s.k} className={s.done ? 'done' : ''}>
-              <span className="dot">{s.done ? '✓' : ''}</span>
-              <span className="p-k">{s.k}</span>
-              <span className="p-sub">{s.sub}</span>
-            </li>
-          ))}
-        </ol>
+        {stage === 'received' && (
+          <>
+            <p className="hero-text">
+              ✓ Order received by <strong>{who(tonight.received!.by)}</strong> at {fmtTime(tonight.received!.at)}. Everything is in the kitchen for tomorrow.
+            </p>
+            <p className="muted small">Tomorrow's owner: {tomorrowOwner.ownerId === me.id ? 'you' : firstName(nameOf(db, tomorrowOwner.ownerId))}</p>
+          </>
+        )}
       </section>
 
-      {/* Today's visit, from her evening note */}
       <section className="card">
         <div className="card-title">Today's cooking</div>
         {note ? (
@@ -124,12 +130,11 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
             <p className="muted">She didn't say.</p>
           )
         ) : (
-          <p className="muted">{flat.cookName} will tell us in her evening note.</p>
+          <p className="muted">{flat.cookName} will tell us in her note at 8 pm.</p>
         )}
         {note && (note.voiceUrl || note.voiceSecs > 0) && <VoiceNote url={note.voiceUrl} secs={note.voiceSecs} label={`${flat.cookName} · ${fmtTime(note.at)}`} />}
       </section>
 
-      {/* Tomorrow's dish */}
       {!tonight.skipped && (
         <section className="card">
           <div className="card-title">Tomorrow's dish</div>
@@ -172,7 +177,7 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
         <div className="fair-mini" onClick={() => goTo('turns')}>
           {[...fair.counts.entries()].map(([id, n]) => (
             <div key={id} className="fair-mini-row">
-              <span>{id === me.id ? 'You' : firstName(nameOf(db, id))}</span>
+              <span>{who(id)}</span>
               <span className="bar"><span style={{ width: `${fair.total ? (n / fair.total) * 100 : 0}%` }} /></span>
               <span className="muted small">{n}</span>
             </div>

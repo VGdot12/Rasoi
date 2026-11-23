@@ -1,7 +1,7 @@
 // A sample flat so the prototype can be explored straight away:
 // Quad 3, three flatmates who share a cook (our persona, Rohan), with two weeks of history.
 
-import { addDays, isoDate, newEvening, weekday } from './logic'
+import { addDays, isoDate, newEvening, SIM, weekday } from './logic'
 import type { DB, Evening, Flat, OrderApp, User } from './types'
 
 export const DEMO_CODE = 'QUAD03'
@@ -32,7 +32,7 @@ export function seedDB(): DB {
     staplesWeekday: weekday(today),
   }
 
-  const db: DB = { version: 2, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: '18:00' } }
+  const db: DB = { version: 3, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: SIM.start } }
 
   // Two weeks of evenings, built in order so turns rotate exactly as the app would rotate them.
   const itemsPool = [['onion', 'tomato', 'curd'], ['milk', 'coriander'], ['potato', 'chilli', 'ginger'], ['paneer', 'tomato'], ['bhindi', 'onion'], ['egg', 'bread', 'milk'], ['spinach', 'garlic'], ['lemon', 'curd']]
@@ -66,7 +66,10 @@ export function seedDB(): DB {
       e.dishSource = 'suggestion'
     }
     // i === 7: the owner did not order (one of the missed visits followed it)
-    if (i !== 7) e.ordered = { by: i === 4 ? 'u_rohan' : e.ownerId, at: `21:${String(5 + i * 3).padStart(2, '0')}`, app: apps[i % apps.length], amount: 180 + i * 23 }
+    if (i !== 7) {
+      e.ordered = { by: i === 4 ? 'u_rohan' : e.ownerId, at: `22:${String(5 + i * 3).padStart(2, '0')}`, app: apps[i % apps.length], amount: 180 + i * 23 }
+      e.received = { by: db.flats[0].memberIds[i % 3], at: `22:${String(20 + i * 3).padStart(2, '0')}` }
+    }
     if (i === 4) e.handedOverFrom = e.ownerId
     if (i === 4) e.ownerId = 'u_rohan'
     db.evenings.push(e)
