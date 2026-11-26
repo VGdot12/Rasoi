@@ -28,6 +28,15 @@ export interface Flat {
   cookVisits: 1 | 2
   usualDishes: string[]
   staplesWeekday: number // 0 = Sunday
+  /** What is in the kitchen. Received orders move in here. */
+  pantry: PantryItem[]
+}
+
+/** Something in the kitchen right now. */
+export interface PantryItem {
+  key: string
+  qty: string
+  since: string // ISO date it arrived
 }
 
 export interface ListLine {
@@ -70,10 +79,12 @@ export interface Evening {
   received: { by: string; at: string } | null
   nudgeSeenAt: string | null
   skipped: boolean // cook's day off: nobody orders, the turn does not move
+  /** The kitchen as it was when the evening began, so a prototype restart can put it back. */
+  pantryAtStart: PantryItem[]
 }
 
 export interface DB {
-  version: 3
+  version: 5
   users: User[]
   flats: Flat[]
   evenings: Evening[]

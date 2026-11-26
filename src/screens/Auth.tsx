@@ -1,53 +1,56 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Lang } from '../lib/catalogue'
-import { nameOf, uid, variants } from '../lib/logic'
-import { DEMO_CODE } from '../lib/seed'
+import { uid } from '../lib/logic'
+import { PERSONAS } from '../lib/seed'
 import { useStore } from '../lib/store'
 import type { Role } from '../lib/types'
 
-type Step = 'welcome' | 'phone' | 'otp' | 'profile'
+type Step = 'pick' | 'phone' | 'otp' | 'profile'
 
+/**
+ * Start: pick whose evening to live through (Aditya, Rohan or Sunita didi), then sign in as them.
+ * The phone number is filled in and the code auto-fills, as SMS autofill does, so there is nothing to type.
+ */
 export function Auth() {
-  const { db, update } = useStore()
-  const [step, setStep] = useState<Step>('welcome')
+  const { db, update, sim } = useStore()
+  const [step, setStep] = useState<Step>('pick')
   const [phone, setPhone] = useState('')
+  const [persona, setPersona] = useState<(typeof PERSONAS)[number] | null>(null)
   const [otp, setOtp] = useState('')
   const [name, setName] = useState('')
   const [role, setRole] = useState<Role>('flatmate')
   const [lang, setLang] = useState<Lang>('hi')
   const digits = phone.replace(/\D/g, '').slice(-10)
 
-  // The three views: tonight's owner, another roommate, and the cook.
-  const sampleFlat = db.flats.find((f) => f.code === DEMO_CODE)
-  const v = sampleFlat ? variants(db, sampleFlat) : null
-  const phoneOf = (id: string | null) => db.users.find((u) => u.id === id)?.phone ?? ''
-  const samples = v
-    ? [
-        { label: `Tonight's owner · ${nameOf(db, v.owner ?? '')}`, phone: phoneOf(v.owner) },
-        { label: `Roommate · ${nameOf(db, v.roommate ?? '')}`, phone: phoneOf(v.roommate) },
-        { label: `Didi · ${nameOf(db, v.cook ?? '')}`, phone: phoneOf(v.cook) },
-      ].filter((x) => x.phone)
-    : []
+  // The code always fills itself after about 1.5 seconds, as SMS autofill does. Nobody types it.
+  useEffect(() => {
+    if (step !== 'otp') return
+    setOtp('')
+    const t = setTimeout(() => setOtp('4821'), 1500)
+    return () => clearTimeout(t)
+  }, [step])
 
   const verify = () => {
     const existing = db.users.find((u) => u.phone === digits)
-    if (existing) update((d) => void (d.sessionUserId = existing.id))
+    if (existing) {
+      if (persona) sim.resetEvening() // every journey starts fresh at 7:30 pm
+      update((d) => void (d.sessionUserId = existing.id))
+    }
     else setStep('profile')
   }
 
   const createUser = () =>
     update((d) => {
       const id = uid('u')
-      // A cook whose number the flat already saved is connected to that flat straight away.
       const flat = role === 'cook' ? d.flats.find((f) => f.cookPhone.replace(/\D/g, '').slice(-10) === digits) : undefined
       d.users.push({ id, name: name.trim(), phone: digits, role, lang: role === 'cook' ? lang : 'en', flatId: flat?.id ?? null })
       if (flat) flat.cookId = id
       d.sessionUserId = id
     })
 
-  if (step === 'welcome')
+  if (step === 'pick')
     return (
-      <div className="auth welcome">
+      <div className="auth pick">
         <div className="welcome-top">
           <div className="welcome-art" aria-hidden>
             <div className="pot">🍲</div>
@@ -58,38 +61,51 @@ export function Auth() {
           <h1>Rasoi Ready</h1>
           <p className="welcome-lead">Tomorrow's ingredients, in the kitchen before your cook arrives.</p>
         </div>
-        <ul className="welcome-points">
-          <li><span>🎤</span>Your cook tells the flat what's running out, the evening before</li>
-          <li><span>📝</span>One clean list with quantities, ready for Blinkit or Zepto</li>
-          <li><span>🔁</span>One owner each night, turns rotate. Nobody chases anyone</li>
-        </ul>
-        <button type="button" className="btn btn-primary btn-block" onClick={() => setStep('phone')}>Get started</button>
-        <p className="fine">We never order, pay or deliver. Your Blinkit or Zepto account stays yours.</p>
+        <h2 className="pick-title">Who are you tonight?</h2>
+        <p className="muted pick-sub">Flat: Quad 3. You'll go through the whole evening as this person.</p>
+        <div className="personas">
+          {PERSONAS.map((p) => (
+            <button
+              key={p.userId}
+              type="button"
+              className="persona"
+              onClick={() => {
+                setPersona(p)
+                setPhone(p.phone)
+                setOtp('')
+                setStep('phone')
+              }}
+            >
+              <span className="persona-emoji" aria-hidden>{p.emoji}</span>
+              <span className="persona-text">
+                <strong>{p.name}</strong>
+                <span className="persona-role">{p.role}</span>
+                <span className="muted small">{p.blurb}</span>
+              </span>
+              <span className="persona-go" aria-hidden>›</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="link center-block" onClick={() => { setPersona(null); setPhone(''); setStep('phone') }}>
+          New here? Set up your own flat
+        </button>
       </div>
     )
 
   if (step === 'phone')
     return (
       <div className="auth">
-        <button type="button" className="back" onClick={() => setStep('welcome')}>‹ Back</button>
-        <h2>Your phone number</h2>
-        <p className="muted">We'll send a one-time code. No password to remember.</p>
+        <button type="button" className="back" onClick={() => setStep('pick')}>‹ Back</button>
+        <h2>{persona ? `Sign in as ${persona.name}` : 'Your phone number'}</h2>
+        <p className="muted">We'll send a one-time code. No password.</p>
         <label className="field">
           <span>Mobile number</span>
           <div className="phone-input">
             <span>+91</span>
-            <input inputMode="numeric" autoFocus value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" maxLength={14} />
+            <input inputMode="numeric" autoFocus={!persona} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" maxLength={14} />
           </div>
         </label>
         <button type="button" className="btn btn-primary btn-block" disabled={digits.length !== 10} onClick={() => setStep('otp')}>Send code</button>
-        <div className="demo-accounts">
-          <div className="muted small">Prototype: try a sample account in the flat "Quad 3"</div>
-          <div className="row wrap gap8">
-            {samples.map((x) => (
-              <button key={x.label} type="button" className="chip" onClick={() => setPhone(x.phone)}>{x.label}</button>
-            ))}
-          </div>
-        </div>
       </div>
     )
 
@@ -99,8 +115,8 @@ export function Auth() {
         <button type="button" className="back" onClick={() => setStep('phone')}>‹ Back</button>
         <h2>Enter the code</h2>
         <p className="muted">Sent to +91 {digits.replace(/(\d{5})(\d{5})/, '$1 $2')}</p>
-        <input className="otp" inputMode="numeric" autoFocus maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="• • • •" aria-label="One-time code" />
-        <p className="muted small">Prototype: any 4 digits work.</p>
+        <input className={`otp ${otp ? 'otp-filled' : ''}`} inputMode="numeric" autoComplete="one-time-code" readOnly maxLength={4} value={otp} placeholder="• • • •" aria-label="One-time code" />
+        <p className="muted small center">{otp ? '✓ Filled in from your SMS' : 'Reading the code from your SMS…'}</p>
         <button type="button" className="btn btn-primary btn-block" disabled={otp.length !== 4} onClick={verify}>Verify</button>
       </div>
     )

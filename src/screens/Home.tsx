@@ -1,16 +1,20 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Milestones, SimBar } from '../components/Sim'
-import { Avatar, VoiceNote } from '../components/ui'
+import { VoiceNote } from '../components/ui'
 import { nameOf as ingName } from '../lib/catalogue'
-import { addDays, buildList, DEADLINES, eveningOrDraft, fairness, finalDish, firstName, fmtTime, nameOf, stageOf, weekReady } from '../lib/logic'
+import {
+  addDays, AUTO, buildList, DEADLINES, eveningOrDraft, finalDish, firstName, fmtTime, nameOf,
+  markReceived, receiveOpensAt, stageOf, weekReady, type Line,
+} from '../lib/logic'
 import { useStore } from '../lib/store'
 import { AddItemSheet, OrderSheet } from './Sheets'
 
+// Home: one card that says the one thing to do now for tomorrow's cooking. Everything else is secondary and kept short.
+
 export function Home({ goTo }: { goTo: (tab: string) => void }) {
-  const { db, me, flat, tonight, today, time, updateTonight } = useStore()
+  const { db, me, flat, tonight, time, updateTonight } = useStore()
   const [order, setOrder] = useState(false)
   const [add, setAdd] = useState(false)
-  const [pickDish, setPickDish] = useState(false)
   if (!me || !flat || !tonight) return null
 
   const stage = stageOf(tonight, time)
@@ -18,176 +22,193 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
   const isOwner = tonight.ownerId === me.id
   const owner = firstName(nameOf(db, tonight.ownerId))
   const dish = finalDish(tonight)
-  const note = tonight.note
-  const week = weekReady(db, flat, today)
-  const fair = fairness(db, flat, today)
-  const tomorrowOwner = eveningOrDraft(db, flat, addDays(today, 1))
-  const who = (id: string) => (id === me.id ? 'You' : firstName(nameOf(db, id)))
-  const emojiRow = (
-    <div className="emoji-row" onClick={() => goTo('list')}>
-      {lines.slice(0, 8).map((l) => <span key={l.key} title={`${l.name} ${l.qty}`}>{l.emoji}</span>)}
-      {lines.length > 8 && <span className="more">+{lines.length - 8}</span>}
-    </div>
-  )
+  const cook = flat.cookName
+  const opens = receiveOpensAt(tonight)
+  const canReceive = !!tonight.ordered && time >= opens
+  // The dish card appears only when the flat has to decide: Didi didn't name one and nobody has picked yet.
+  const noteIn = !!tonight.note || tonight.fallbackAnswered
+  const dishDecisionNeeded = !tonight.skipped && noteIn && !dish && !!tonight.suggestion && !tonight.ordered
 
   return (
     <div className="screen">
       <SimBar />
       <div className="hello">
         <div>
-          <div className="muted small">{isOwner ? 'You order tonight' : `Hi ${me.name}`}</div>
-          <h2>Tonight in {flat.name}</h2>
+          <div className="muted small">{isOwner ? 'Your turn to order tonight' : `${owner} orders tonight`}</div>
+          <h2>Tomorrow's cooking</h2>
         </div>
       </div>
       <Milestones />
 
-      <section className={`hero-card stage-${stage} ${isOwner ? 'is-owner' : ''}`}>
-        <div className="owner-line">
-          <Avatar name={nameOf(db, tonight.ownerId)} size={28} />
-          <span>{isOwner ? <strong>You're tonight's owner</strong> : <>Owner tonight: <strong>{owner}</strong></>}</span>
-          {tonight.handedOverFrom && <span className="tag">handed over</span>}
-        </div>
+      {stage === 'received' ? (
+        <Finale />
+      ) : (
+        <section className={`now-card now-${stage} ${isOwner ? 'is-owner' : ''}`} aria-live="polite">
+          {stage === 'skipped' && <Now title="No cook tomorrow" body="Nothing to order tonight. Turns don't move." />}
 
-        {stage === 'skipped' && <p className="hero-text">{flat.cookName} isn't coming tomorrow. Nothing to order tonight, and turns don't move.</p>}
-
-        {stage === 'before-note' && (
-          <>
-            <p className="hero-text">Waiting for {flat.cookName}'s note. She'll say tomorrow's dish and what's running out by {fmtTime(DEADLINES.note)}.</p>
-            <button type="button" className="btn btn-ghost" onClick={() => setAdd(true)}>+ Noticed something low? Add it</button>
-          </>
-        )}
-
-        {stage === 'no-note' &&
-          (isOwner ? (
-            <>
-              <p className="hero-text">{flat.cookName}'s note hasn't come in. If tomorrow is <strong>{tonight.suggestion || 'the usual'}</strong>, what's low?</p>
-              <div className="row gap8 wrap">
-                <button type="button" className="btn btn-primary" onClick={() => setAdd(true)}>Add what's low</button>
-                <button type="button" className="btn btn-outline" disabled={!lines.length} onClick={() => updateTonight((e) => void (e.fallbackAnswered = true))}>That's everything</button>
-              </div>
-            </>
-          ) : (
-            <p className="hero-text">{flat.cookName}'s note hasn't come in. {owner} will add what's low tonight. You can add too.</p>
-          ))}
-
-        {stage === 'collecting' && (
-          <>
-            <p className="hero-text">
-              {flat.cookName}'s note is in. Tomorrow: <strong>{dish || 'dish not decided'}</strong>. The list goes out at {fmtTime(DEADLINES.list)}, so add anything else you need now.
-            </p>
-            {emojiRow}
-            <button type="button" className="btn btn-ghost" onClick={() => setAdd(true)}>+ Add to the list</button>
-          </>
-        )}
-
-        {stage === 'list' &&
-          (isOwner ? (
-            <>
-              <div className="nudge-banner">⏰ Reminder: you're tonight's owner. Place the order, then tap "Order placed".</div>
-              <p className="hero-text">List created: <strong>{lines.length} {lines.length === 1 ? 'item' : 'items'}</strong> for {dish || 'tomorrow'}.</p>
-              {emojiRow}
-              <button type="button" className="btn btn-primary btn-block" disabled={!lines.length} onClick={() => setOrder(true)}>{lines.length ? 'Order now' : 'Nothing to order'}</button>
-            </>
-          ) : (
-            <>
-              <p className="hero-text">List created: {lines.length} items for {dish || 'tomorrow'}. <strong>{owner}</strong> is placing the order.</p>
-              {emojiRow}
-              <p className="muted small">Only {owner} orders tonight, so nothing is bought twice.</p>
-            </>
-          ))}
-
-        {stage === 'ordered' && (
-          <>
-            <p className="hero-text">
-              🛵 Order placed by <strong>{who(tonight.ordered!.by)}</strong> on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}.
-            </p>
-            {tonight.ordered!.amount ? <p className="muted small">₹{tonight.ordered!.amount} · ₹{Math.round(tonight.ordered!.amount / flat.memberIds.length)} each</p> : null}
-            <button type="button" className="btn btn-primary btn-block" onClick={() => updateTonight((e, d) => void (e.received = { by: me.id, at: d.clock?.time ?? time }))}>
-              ✓ Order received
-            </button>
-            <p className="muted small">Anyone in the flat can tap this when the delivery arrives.</p>
-          </>
-        )}
-
-        {stage === 'received' && (
-          <>
-            <p className="hero-text">
-              ✓ Order received by <strong>{who(tonight.received!.by)}</strong> at {fmtTime(tonight.received!.at)}. Everything is in the kitchen for tomorrow.
-            </p>
-            <p className="muted small">Tomorrow's owner: {tomorrowOwner.ownerId === me.id ? 'you' : firstName(nameOf(db, tomorrowOwner.ownerId))}</p>
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card-title">Today's cooking</div>
-        {note ? (
-          note.todayAllGood === false ? (
-            <p>⚠️ {flat.cookName} was missing <strong>{note.todayMissing.map((k) => ingName(k)).join(', ') || 'something'}</strong> today.</p>
-          ) : note.todayAllGood ? (
-            <p>✅ {flat.cookName} had everything she needed today.</p>
-          ) : (
-            <p className="muted">She didn't say.</p>
-          )
-        ) : (
-          <p className="muted">{flat.cookName} will tell us in her note at 8 pm.</p>
-        )}
-        {note && (note.voiceUrl || note.voiceSecs > 0) && <VoiceNote url={note.voiceUrl} secs={note.voiceSecs} label={`${flat.cookName} · ${fmtTime(note.at)}`} />}
-      </section>
-
-      {!tonight.skipped && (
-        <section className="card">
-          <div className="card-title">Tomorrow's dish</div>
-          {tonight.dishSource === 'cook' ? (
-            <p>🍛 <strong>{tonight.dish}</strong> <span className="muted small">· {flat.cookName} decided</span></p>
-          ) : tonight.suggestionAnswer === 'accepted' ? (
-            <p>🍛 <strong>{tonight.suggestion}</strong> <span className="muted small">· suggested from your usual dishes</span></p>
-          ) : tonight.suggestionAnswer === 'changed' ? (
-            <p>🍛 <strong>{tonight.dish}</strong> <span className="muted small">· changed by the flat</span></p>
-          ) : tonight.suggestion ? (
-            <>
-              <p>How about <strong>{tonight.suggestion}</strong>? <span className="muted small">From your usual dishes, not made this week.</span></p>
-              <div className="row gap8">
-                <button type="button" className="btn btn-primary" onClick={() => updateTonight((e) => { e.suggestionAnswer = 'accepted'; e.dish = e.suggestion; e.dishSource = 'suggestion' })}>Sounds good</button>
-                <button type="button" className="btn btn-outline" onClick={() => setPickDish(!pickDish)}>Something else</button>
-              </div>
-            </>
-          ) : (
-            <p className="muted">Add your usual dishes and we'll suggest one each evening. <button type="button" className="link" onClick={() => goTo('dishes')}>Add dishes</button></p>
+          {stage === 'before-note' && (
+            <Now
+              title={`${cook}'s note comes at ${fmtTime(DEADLINES.note)}`}
+              body={isOwner ? "She'll say tomorrow's dish and what's running out. You'll order from that." : `Nothing for you to do. ${owner} orders tonight.`}
+            >
+              <button type="button" className="btn btn-quiet" onClick={() => setAdd(true)}>+ Add something you noticed</button>
+            </Now>
           )}
-          {pickDish && (
-            <div className="chips">
-              {flat.usualDishes.filter((d) => d !== tonight.suggestion).map((d) => (
-                <button key={d} type="button" className="chip" onClick={() => { updateTonight((e) => { e.suggestionAnswer = 'changed'; e.dish = d; e.dishSource = 'flatmate' }); setPickDish(false) }}>{d}</button>
-              ))}
-            </div>
+
+          {stage === 'no-note' &&
+            (isOwner ? (
+              <Now title={`${cook}'s note hasn't come`} body={`If tomorrow is ${tonight.suggestion || 'the usual'}, what's low? Add it and you're done.`}>
+                <button type="button" className="btn btn-primary btn-block" onClick={() => setAdd(true)}>Add what's low</button>
+                <button type="button" className="btn btn-quiet" disabled={!lines.length} onClick={() => updateTonight((e) => void (e.fallbackAnswered = true))}>That's everything</button>
+              </Now>
+            ) : (
+              <Now title={`${cook}'s note hasn't come`} body={`${owner} will add what's low. You can add too.`}>
+                <button type="button" className="btn btn-quiet" onClick={() => setAdd(true)}>+ Add something</button>
+              </Now>
+            ))}
+
+          {stage === 'collecting' && (
+            <Now title={`${cook}'s note is in`} body={`Tomorrow: ${dish || 'dish not decided'}. The list is created at ${fmtTime(DEADLINES.list)}.`}>
+              <ListPreview lines={lines} onOpen={() => goTo('list')} />
+              <button type="button" className="btn btn-quiet" onClick={() => setAdd(true)}>+ Need anything else? Add it</button>
+            </Now>
+          )}
+
+          {stage === 'list' &&
+            (isOwner ? (
+              <Now title="Your turn to order" body={`${lines.length} items for ${dish || 'tomorrow'}. One order, everything on it. Please order by ${fmtTime(AUTO.orderAt)}.`} tone="action">
+                <ListPreview lines={lines} onOpen={() => goTo('list')} />
+                <button type="button" className="btn btn-primary btn-block" disabled={!lines.length} onClick={() => setOrder(true)}>Order now</button>
+              </Now>
+            ) : (
+              <Now title={`${owner} is ordering`} body={`List created: ${lines.length} items for ${dish || 'tomorrow'}. Nothing for you to do; only ${owner} orders, so nothing is bought twice.`}>
+                <ListPreview lines={lines} onOpen={() => goTo('list')} />
+              </Now>
+            ))}
+
+          {stage === 'ordered' && (
+            <Now
+              title={canReceive ? 'Has it arrived?' : 'Order placed · on its way'}
+              body={
+                canReceive
+                  ? `${tonight.ordered!.by === me.id ? 'Your' : `${owner}'s`} ${tonight.ordered!.app} order should be at the door.${!isOwner ? ` If nobody marks it, ${owner} will by ${fmtTime(AUTO.receiveByFlatmateView)}.` : ''}`
+                  : `${tonight.ordered!.by === me.id ? 'You' : owner} ordered on ${tonight.ordered!.app} at ${fmtTime(tonight.ordered!.at)}. Arrives from ${fmtTime(opens)}${!isOwner ? ` to ${fmtTime(AUTO.receiveByFlatmateView)}` : ''}.`
+              }
+              tone={canReceive ? 'action' : 'calm'}
+            >
+              {canReceive ? (
+                <button type="button" className="btn btn-primary btn-block" onClick={() => updateTonight((e, d) => markReceived(d, e, me.id, d.clock?.time ?? time))}>
+                  ✓ Order received
+                </button>
+              ) : (
+                <div className="eta"><span className="eta-dot" /> Delivery on the way</div>
+              )}
+              {tonight.ordered!.amount ? <p className="muted small">₹{tonight.ordered!.amount} · ₹{Math.round(tonight.ordered!.amount / flat.memberIds.length)} each on Splitwise</p> : null}
+            </Now>
           )}
         </section>
       )}
 
-      <section className="card stats">
-        {week.visits ? (
-          <div>
-            <div className="stat">{week.ready}<span>/{week.visits}</span></div>
-            <div className="muted small">days this week {flat.cookName.split(' ')[0]} had everything</div>
+      {tonight.note && stage !== 'received' && (
+        <section className="card compact">
+          <div className="row gap8 between">
+            <span className="card-title">{cook}'s note · {fmtTime(tonight.note.at)}</span>
           </div>
-        ) : (
-          <div className="muted small" style={{ maxWidth: 150 }}>Your first week starts tonight. We'll count the days {flat.cookName.split(' ')[0]} had everything.</div>
-        )}
-        <div className="fair-mini" onClick={() => goTo('turns')}>
-          {[...fair.counts.entries()].map(([id, n]) => (
-            <div key={id} className="fair-mini-row">
-              <span>{who(id)}</span>
-              <span className="bar"><span style={{ width: `${fair.total ? (n / fair.total) * 100 : 0}%` }} /></span>
-              <span className="muted small">{n}</span>
-            </div>
-          ))}
-          <div className="muted small">Orders in the last 30 days</div>
-        </div>
-      </section>
+          <p>
+            {tonight.note.todayAllGood === false
+              ? `Today she was missing ${tonight.note.todayMissing.map((k) => ingName(k)).join(', ') || 'something'}.`
+              : tonight.note.todayAllGood
+                ? 'Today she had everything she needed.'
+                : ''}
+          </p>
+          {(tonight.note.voiceUrl || tonight.note.voiceSecs > 0) && <VoiceNote url={tonight.note.voiceUrl} secs={tonight.note.voiceSecs} />}
+        </section>
+      )}
+
+      {dishDecisionNeeded && <DishCard />}
 
       <OrderSheet open={order} onClose={() => setOrder(false)} />
       <AddItemSheet open={add} onClose={() => setAdd(false)} />
     </div>
+  )
+}
+
+function Now({ title, body, tone = 'calm', children }: { title: string; body: string; tone?: 'calm' | 'action'; children?: ReactNode }) {
+  return (
+    <div className={`now now-tone-${tone}`}>
+      <h3>{title}</h3>
+      <p>{body}</p>
+      {children && <div className="now-actions">{children}</div>}
+    </div>
+  )
+}
+
+/** Items shown with their names, not icons alone. */
+function ListPreview({ lines, onOpen }: { lines: Line[]; onOpen: () => void }) {
+  if (!lines.length) return <p className="muted small">Nothing on the list yet.</p>
+  const shown = lines.slice(0, 6)
+  return (
+    <button type="button" className="list-preview" onClick={onOpen} aria-label="Open the list">
+      {shown.map((l) => (
+        <span key={l.key} className="lp-item">
+          <span aria-hidden>{l.emoji}</span> {l.name} <span className="lp-qty">{l.qty}</span>
+        </span>
+      ))}
+      {lines.length > shown.length && <span className="lp-item lp-more">+{lines.length - shown.length} more</span>}
+    </button>
+  )
+}
+
+/** The end of the evening: the moment the product delivered. Peak-end rule: make it the one they remember. */
+function Finale() {
+  const { db, me, flat, tonight, today } = useStore()
+  if (!me || !flat || !tonight?.ordered || !tonight.received) return null
+  const who = (id: string) => (id === me.id ? 'You' : firstName(nameOf(db, id)))
+  const week = weekReady(db, flat, today)
+  const next = eveningOrDraft(db, flat, addDays(today, 1))
+  const dish = finalDish(tonight)
+  const per = tonight.ordered.amount ? Math.round(tonight.ordered.amount / flat.memberIds.length) : 0
+  return (
+    <section className="finale" aria-live="polite">
+      <div className="confetti" aria-hidden>{Array.from({ length: 14 }, (_, i) => <i key={i} />)}</div>
+      <div className="finale-mark">✓</div>
+      <h3>Kitchen ready for tomorrow</h3>
+      <p>{flat.cookName} will find everything{dish ? ` for ${dish}` : ''}. Nobody had to chase anyone.</p>
+      <ol className="recap">
+        <li><span>{fmtTime(tonight.note?.at ?? DEADLINES.note)}</span>{flat.cookName}'s note</li>
+        <li><span>{fmtTime(DEADLINES.list)}</span>List created · {buildList(tonight).length} items</li>
+        <li><span>{fmtTime(tonight.ordered.at)}</span>{who(tonight.ordered.by)} ordered on {tonight.ordered.app}</li>
+        <li><span>{fmtTime(tonight.received.at)}</span>{who(tonight.received.by)} received it</li>
+      </ol>
+      <div className="finale-facts">
+        {week.visits > 0 && <div><strong>{week.ready}/{week.visits}</strong><span>days this week she had everything</span></div>}
+        {per > 0 && <div><strong>₹{per}</strong><span>your share, on Splitwise</span></div>}
+        <div><strong>{next.ownerId === me.id ? 'You' : firstName(nameOf(db, next.ownerId))}</strong><span>order{next.ownerId === me.id ? '' : 's'} tomorrow</span></div>
+      </div>
+    </section>
+  )
+}
+
+/** Shown only when the flat has to decide: Didi didn't name tomorrow's dish. */
+function DishCard() {
+  const { flat, tonight, updateTonight } = useStore()
+  const [pick, setPick] = useState(false)
+  if (!flat || !tonight) return null
+  return (
+    <section className="card compact decide">
+      <div className="card-title">Decide tomorrow's dish</div>
+      <p>{flat.cookName} hasn't picked one. How about <strong>{tonight.suggestion}</strong>? <span className="muted small">From your usual dishes, not made this week.</span></p>
+      <div className="row gap8">
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => updateTonight((e) => { e.suggestionAnswer = 'accepted'; e.dish = e.suggestion; e.dishSource = 'suggestion' })}>Sounds good</button>
+        <button type="button" className="btn btn-quiet btn-sm" onClick={() => setPick(!pick)}>Something else</button>
+      </div>
+      {pick && (
+        <div className="chips">
+          {flat.usualDishes.filter((d) => d !== tonight.suggestion).map((d) => (
+            <button key={d} type="button" className="chip" onClick={() => { updateTonight((e) => { e.suggestionAnswer = 'changed'; e.dish = d; e.dishSource = 'flatmate' }); setPick(false) }}>{d}</button>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
