@@ -116,6 +116,7 @@ function CreateFlat({ onBack }: { onBack: () => void }) {
       cookVisits: f.cookVisits,
       usualDishes: f.dishes,
       staplesWeekday: f.staples,
+      pantry: [],
     }
     setCreated(flat)
   }

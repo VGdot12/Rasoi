@@ -42,6 +42,14 @@ export const DEADLINES = { prompt: '19:30', note: '20:00', list: '22:00' }
 /** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 3 minutes). */
 export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 3 }
 
+/** What happens on its own for the people you are not playing. */
+export const AUTO = {
+  orderAt: '23:00', // tonight's owner places the order by 11 pm
+  deliveryMins: 20, // "Order received" opens 20 minutes after the order is placed
+  receiveByFlatmateView: '23:45', // in Rohan's (flatmate) journey, Aditya receives it at 11:45 if Rohan hasn't
+  receiveInCookView: '23:30', // in Didi's journey, the flat receives it at 11:30
+}
+
 export const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 export const fromMin = (n: number) => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`
 
@@ -83,6 +91,7 @@ export function newEvening(db: DB, flat: Flat, date: string): Evening {
     received: null,
     nudgeSeenAt: null,
     skipped: false,
+    pantryAtStart: structuredClone(flat.pantry ?? []),
   }
 }
 
@@ -166,21 +175,79 @@ export function stageOf(e: Evening, time: string): Stage {
   return 'list'
 }
 
+/** The delivery arrived: tonight's items move into the kitchen. */
+export function markReceived(d: DB, e: Evening, by: string, at: string) {
+  e.received = { by, at }
+  const f = d.flats.find((x) => x.id === e.flatId)
+  if (!f) return
+  f.pantry = f.pantry ?? []
+  for (const l of buildList(e)) {
+    const item = { key: l.key, qty: l.qty, since: e.date }
+    const i = f.pantry.findIndex((p) => p.key === l.key)
+    if (i >= 0) f.pantry.splice(i, 1)
+    f.pantry.unshift(item)
+  }
+}
+
+/** The cook said these ran out today: they leave the kitchen. */
+export function removeFromPantry(d: DB, flatId: string, keys: string[]) {
+  const f = d.flats.find((x) => x.id === flatId)
+  if (f) f.pantry = (f.pantry ?? []).filter((p) => !keys.includes(p.key))
+}
+
+/** When the delivery can be marked as received. */
+export const receiveOpensAt = (e: Evening) => (e.ordered ? fromMin(toMin(e.ordered.at) + AUTO.deliveryMins) : '')
+
 /** The four milestones shown at the top of Tonight. */
 export function milestones(e: Evening, time: string) {
   const listOut = (!!e.note || e.fallbackAnswered) && (time >= DEADLINES.list || !!e.ordered)
   return [
     { k: 'Didi\u2019s note', done: !!e.note || e.fallbackAnswered, at: e.note?.at ?? '', due: DEADLINES.note },
     { k: 'List created', done: listOut, at: listOut ? DEADLINES.list : '', due: DEADLINES.list },
-    { k: 'Order placed', done: !!e.ordered, at: e.ordered?.at ?? '', due: '' },
-    { k: 'Order received', done: !!e.received, at: e.received?.at ?? '', due: '' },
+    { k: 'Order placed', done: !!e.ordered, at: e.ordered?.at ?? '', due: AUTO.orderAt },
+    { k: 'Order received', done: !!e.received, at: e.received?.at ?? '', due: AUTO.receiveByFlatmateView },
   ]
+}
+
+/**
+ * One tick of the simulation clock. Everyone you are not playing acts on their own:
+ * Didi's note at 8 pm (in her journey the clock waits for you instead), the owner's order at 11 pm,
+ * and the delivery being received (11:45 pm in Rohan's journey, 11:30 pm in Didi's).
+ */
+export function simTick(d: DB) {
+  const c = d.clock ?? { date: isoDate(new Date()), time: SIM.start }
+  let next = fromMin(Math.min(toMin(SIM.end), toMin(c.time) + SIM.minutesPerSecond))
+  const viewer = d.users.find((u) => u.id === d.sessionUserId)
+  for (const f of d.flats) {
+    if (viewer?.flatId !== f.id) continue
+    let e = findEvening(d, f.id, c.date)
+    if (e?.skipped) continue
+    if (!e) {
+      e = newEvening(d, f, c.date)
+      d.evenings.push(e)
+    }
+    const isCook = viewer.role === 'cook'
+    const isOwner = viewer.id === e.ownerId
+    if (next >= DEADLINES.note && !e.note && !e.fallbackAnswered) {
+      if (isCook) next = DEADLINES.note // her journey: wait for her note
+      else autoNote(d, f, e)
+    }
+    if (next >= AUTO.orderAt && !e.ordered && !isOwner && buildList(e).length) {
+      e.ordered = { by: e.ownerId, at: AUTO.orderAt, app: 'Blinkit', amount: 540 }
+    }
+    if (e.ordered && !e.received && !isOwner) {
+      const at = isCook ? AUTO.receiveInCookView : AUTO.receiveByFlatmateView
+      const by = isCook ? f.memberIds.find((id) => id !== e!.ownerId) ?? e.ownerId : e.ownerId
+      if (next >= at && at >= receiveOpensAt(e)) markReceived(d, e, by, at)
+    }
+  }
+  d.clock = { date: c.date, time: next }
 }
 
 export const finalDish = (e: Evening) => e.dish || (e.suggestionAnswer === 'accepted' ? e.suggestion : '')
 
 /** In the simulation, Didi's note arrives at 8 pm if she has not sent one herself. */
-export function autoNote(db: DB, flat: Flat, e: Evening) {
+export function autoNote(db: DB, _flat: Flat, e: Evening) {
   const seed = toMin(db.clock?.time ?? '20:00') + e.date.split('-').reduce((n, x) => n + Number(x), 0)
   const daily = INGREDIENTS.filter((i) => !i.staple)
   const items: string[] = []
@@ -188,9 +255,8 @@ export function autoNote(db: DB, flat: Flat, e: Evening) {
     const key = daily[(seed + k * 7) % daily.length].key
     if (!items.includes(key)) items.push(key)
   }
-  const dish = e.suggestion || flat.usualDishes[seed % Math.max(1, flat.usualDishes.length)] || ''
-  e.note = { at: DEADLINES.note, todayAllGood: true, todayMissing: [], dish, items, voiceUrl: '', voiceSecs: 19, staplesChecked: false, dayOffTomorrow: false }
-  if (dish) { e.dish = dish; e.dishSource = 'cook' }
+  // She doesn't name a dish in the simulated note, so the flat sees the dish decision.
+  e.note = { at: DEADLINES.note, todayAllGood: true, todayMissing: [], dish: '', items, voiceUrl: '', voiceSecs: 19, staplesChecked: false, dayOffTomorrow: false }
 }
 
 // ---------- notifications ----------
@@ -228,14 +294,6 @@ export function notificationsFor(db: DB, user: User, flat: Flat): Note[] {
   return out.sort((a, b) => (a.at < b.at ? 1 : -1))
 }
 
-/** The three views of the prototype: tonight's owner, the cook, and another roommate. */
-export function variants(db: DB, flat: Flat) {
-  const { date } = now(db)
-  const ownerId = eveningOrDraft(db, flat, date).ownerId
-  const roommate = flat.memberIds.find((id) => id !== ownerId) ?? null
-  return { owner: ownerId || null, cook: flat.cookId, roommate }
-}
-
 // ---------- people ----------
 
 export const nameOf = (db: DB, id: string) => (id === 'cook' ? 'Cook' : db.users.find((u) => u.id === id)?.name ?? '—')
@@ -260,4 +318,17 @@ export function weekReady(db: DB, flat: Flat, today: string) {
   const since = addDays(today, -6)
   const es = db.evenings.filter((e) => e.flatId === flat.id && e.date >= since && e.date <= today && !e.skipped && e.note)
   return { ready: es.filter((e) => e.note!.todayAllGood === true).length, visits: es.length }
+}
+
+/** Put an item on an evening's list (tonight's, or tomorrow's once tonight's order is placed). */
+export function addToEvening(d: DB, flatId: string, date: string, key: string, qty: string, by: string) {
+  const f = d.flats.find((x) => x.id === flatId)
+  if (!f) return
+  let e = findEvening(d, flatId, date)
+  if (!e) {
+    e = newEvening(d, f, date)
+    d.evenings.push(e)
+  }
+  e.removed = e.removed.filter((r) => r !== key)
+  if (!e.extras.some((x) => x.key === key) && !e.note?.items.includes(key)) e.extras.push({ key, qty, addedBy: by })
 }

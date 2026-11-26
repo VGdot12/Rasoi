@@ -1,187 +1,9 @@
 import { useState } from 'react'
-import { Avatar, CopyBtn, QtyPicker, waShare } from '../components/ui'
-import { unitTypeOf } from '../lib/catalogue'
-import { addDays, buildList, DEADLINES, fairness, findEvening, firstName, fmtDay, fmtTime, nameOf, pasteList, upcomingTurns } from '../lib/logic'
+import { Avatar, CopyBtn, waShare } from '../components/ui'
+import { addDays, fairness, firstName, fmtDay, nameOf, upcomingTurns } from '../lib/logic'
 import { useStore } from '../lib/store'
-import { AddItemSheet, OrderSheet } from './Sheets'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-
-// ---------------- List ----------------
-
-export function ListTab() {
-  const { db, me, flat, tonight, today, time, updateTonight } = useStore()
-  const [add, setAdd] = useState(false)
-  const [order, setOrder] = useState(false)
-  if (!me || !flat || !tonight) return null
-  const lines = buildList(tonight)
-  const isOwner = tonight.ownerId === me.id
-  const locked = !!tonight.ordered
-  const tomorrow = findEvening(db, flat.id, addDays(today, 1))
-
-  return (
-    <div className="screen">
-      <div className="hello">
-        <div>
-          <div className="muted small">For tomorrow's cooking</div>
-          <h2>The list</h2>
-        </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setAdd(true)}>+ Add</button>
-      </div>
-
-      <section className="card list-card">
-        {tonight.skipped ? (
-          <p className="muted">No cook tomorrow, so no list tonight.</p>
-        ) : lines.length === 0 ? (
-          <div className="empty-list">
-            <div className="big-emoji">🧺</div>
-            <p>Nothing yet. {flat.cookName}'s evening note fills this in. Noticed something low? Add it.</p>
-          </div>
-        ) : (
-          <ul className="lines">
-            {lines.map((l) => (
-              <li key={l.key} className={locked ? 'locked' : ''}>
-                <span className="line-emoji">{l.emoji}</span>
-                <span className="line-name">
-                  {l.name}
-                  <span className="muted small">{l.addedBy === 'cook' ? flat.cookName : l.addedBy === me.id ? 'you' : firstName(nameOf(db, l.addedBy))}</span>
-                </span>
-                <QtyPicker label={l.name} value={l.qty} type={unitTypeOf(l.key)} disabled={locked} onChange={(v) => updateTonight((ev) => { ev.qtyEdits[l.key] = v; const x = ev.extras.find((y) => y.key === l.key); if (x) x.qty = v })} />
-                {!locked && (
-                  <button type="button" className="icon-btn" aria-label={`Remove ${l.name}`} onClick={() => updateTonight((ev) => { ev.removed.push(l.key); ev.extras = ev.extras.filter((x) => x.key !== l.key) })}>✕</button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {lines.length > 0 && !tonight.skipped && (
-        <section className="card">
-          {locked ? (
-            <p>✓ Order placed by <strong>{tonight.ordered!.by === me.id ? 'you' : nameOf(db, tonight.ordered!.by)}</strong> on {tonight.ordered!.app} at {fmtTime(tonight.ordered!.at)}.{tonight.received ? ` Received by ${tonight.received.by === me.id ? 'you' : firstName(nameOf(db, tonight.received.by))}.` : ''} The list is closed for tonight.</p>
-          ) : time < DEADLINES.list ? (
-            <p className="muted">The list goes out at {fmtTime(DEADLINES.list)}. {isOwner ? 'You order tonight, once it is out.' : `${firstName(nameOf(db, tonight.ownerId))} orders tonight.`} Until then anyone can add.</p>
-          ) : isOwner ? (
-            <>
-              <p>You're tonight's owner. One order, everything on it.</p>
-              <button type="button" className="btn btn-primary btn-block" onClick={() => setOrder(true)}>Order now</button>
-            </>
-          ) : (
-            <p className="muted">Only <strong>{firstName(nameOf(db, tonight.ownerId))}</strong> orders tonight. Add what you need here instead of ordering separately.</p>
-          )}
-          <div className="row gap8 wrap" style={{ marginTop: 10 }}>
-            <CopyBtn text={pasteList(lines)} label="Copy list" className="btn btn-outline btn-sm" />
-            <a className="btn btn-outline btn-sm" href={waShare(`Tomorrow's list (${flat.name}):\n${pasteList(lines)}`)} target="_blank" rel="noreferrer">Share on WhatsApp</a>
-          </div>
-        </section>
-      )}
-
-      {tomorrow && tomorrow.extras.length > 0 && (
-        <section className="card">
-          <div className="card-title">Already on tomorrow's list</div>
-          <p>{tomorrow.extras.map((x) => buildList(tomorrow).find((l) => l.key === x.key)?.name ?? x.key).join(', ')}</p>
-        </section>
-      )}
-
-      <AddItemSheet open={add} onClose={() => setAdd(false)} />
-      <OrderSheet open={order} onClose={() => setOrder(false)} />
-    </div>
-  )
-}
-
-// ---------------- Turns ----------------
-
-export function TurnsTab() {
-  const { db, me, flat, tonight, today, update, updateTonight } = useStore()
-  const [handover, setHandover] = useState(false)
-  if (!me || !flat || !tonight) return null
-  const turns = upcomingTurns(db, flat, today, 7)
-  const fair = fairness(db, flat, today)
-  const fairShare = flat.memberIds.length ? 1 / flat.memberIds.length : 0
-  const isOwner = tonight.ownerId === me.id
-  const inTurn = flat.rotation.includes(me.id)
-
-  return (
-    <div className="screen">
-      <div className="hello">
-        <div>
-          <div className="muted small">One owner a night. Turns rotate on their own.</div>
-          <h2>Turns</h2>
-        </div>
-      </div>
-
-      <section className="card turns">
-        {turns.map((t, i) => (
-          <div key={t.date} className={`turn ${i === 0 ? 'turn-now' : ''}`}>
-            <span className="turn-day">{i === 0 ? 'Tonight' : fmtDay(t.date, today)}</span>
-            <Avatar name={nameOf(db, t.ownerId)} size={26} />
-            <span className="turn-who">{t.ownerId === me.id ? 'You' : nameOf(db, t.ownerId)}</span>
-            {i === 0 && tonight.ordered && <span className="tag tag-done">{tonight.received ? 'received' : 'order placed'}</span>}
-          </div>
-        ))}
-        {isOwner && !tonight.ordered && !tonight.skipped && (
-          <>
-            <button type="button" className="btn btn-outline btn-block" onClick={() => setHandover(!handover)}>Can't do tonight? Hand over</button>
-            {handover && (
-              <div className="chips">
-                {flat.memberIds.filter((id) => id !== me.id).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className="chip"
-                    onClick={() => { updateTonight((e) => { e.handedOverFrom = me.id; e.ownerId = id }); setHandover(false) }}
-                  >
-                    {nameOf(db, id)} takes tonight
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card-title">Who ordered, last 30 days</div>
-        <div className="fair">
-          {[...fair.counts.entries()].map(([id, n]) => {
-            const share = fair.total ? n / fair.total : 0
-            return (
-              <div key={id} className="fair-row">
-                <span className="fair-name">{id === me.id ? 'You' : nameOf(db, id)}</span>
-                <span className="bar big"><span style={{ width: `${share * 100}%` }} /><i style={{ left: `${fairShare * 100}%` }} title="Fair share" /></span>
-                <span className="fair-n">{n}</span>
-              </div>
-            )
-          })}
-        </div>
-        <p className="muted small">The line marks a fair share ({Math.round(fairShare * 100)}%). {fair.total} orders in total.</p>
-      </section>
-
-      <section className="card">
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={inTurn}
-            onChange={(e) =>
-              update((d) => {
-                const f = d.flats.find((x) => x.id === flat.id)!
-                f.rotation = e.target.checked ? [...f.rotation, me.id] : f.rotation.filter((x) => x !== me.id)
-              })
-            }
-          />
-          <span>
-            <strong>I take a turn ordering</strong>
-            <span className="muted small">Turn order: {flat.rotation.map((id) => (id === me.id ? 'you' : firstName(nameOf(db, id)))).join(' → ') || 'nobody yet'}</span>
-          </span>
-        </label>
-        {flat.memberIds.some((id) => !flat.rotation.includes(id)) && (
-          <p className="muted small">Not taking turns: {flat.memberIds.filter((id) => !flat.rotation.includes(id)).map((id) => nameOf(db, id)).join(', ')}</p>
-        )}
-      </section>
-    </div>
-  )
-}
 
 // ---------------- Dishes ----------------
 
@@ -256,6 +78,8 @@ export function FlatTab() {
         </div>
       </div>
 
+      <TurnsCard />
+
       <section className="card">
         <div className="card-title">Flatmates</div>
         <ul className="people">
@@ -307,7 +131,72 @@ export function FlatTab() {
         <p className="fine">We never order without you, and we don't deliver or take payments.</p>
       </section>
 
-      <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out</button>
+      <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out · choose another person</button>
     </div>
+  )
+}
+
+/** Turns: who orders tonight and next, a hand-over, and how fair it has been. */
+function TurnsCard() {
+  const { db, me, flat, tonight, today, update, updateTonight } = useStore()
+  const [handover, setHandover] = useState(false)
+  if (!me || !flat || !tonight) return null
+  const turns = upcomingTurns(db, flat, today, 4)
+  const fair = fairness(db, flat, today)
+  const fairShare = flat.memberIds.length ? 1 / flat.memberIds.length : 0
+  const isOwner = tonight.ownerId === me.id
+  const inTurn = flat.rotation.includes(me.id)
+  const who = (id: string) => (id === me.id ? 'You' : firstName(nameOf(db, id)))
+
+  return (
+    <section className="card compact">
+      <div className="card-title">Turns</div>
+      <ol className="turn-strip">
+        {turns.map((t, i) => (
+          <li key={t.date} className={i === 0 ? 'now' : ''}>
+            <Avatar name={nameOf(db, t.ownerId)} size={30} />
+            <strong>{who(t.ownerId)}</strong>
+            <span className="muted small">{i === 0 ? 'Tonight' : i === 1 ? 'Tomorrow' : new Date(t.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short' })}</span>
+          </li>
+        ))}
+      </ol>
+
+      {isOwner && !tonight.ordered && !tonight.skipped && (
+        <>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setHandover(!handover)}>Can't tonight? Hand over</button>
+          {handover && (
+            <div className="chips">
+              {flat.memberIds.filter((id) => id !== me.id).map((id) => (
+                <button key={id} type="button" className="chip" onClick={() => { updateTonight((e) => { e.handedOverFrom = me.id; e.ownerId = id }); setHandover(false) }}>
+                  {nameOf(db, id)} takes tonight
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <details className="more">
+        <summary>Who's ordered this month</summary>
+        <div className="fair">
+          {[...fair.counts.entries()].map(([id, n]) => (
+            <div key={id} className="fair-row">
+              <span className="fair-name">{who(id)}</span>
+              <span className="bar big"><span style={{ width: `${fair.total ? (n / fair.total) * 100 : 0}%` }} /><i style={{ left: `${fairShare * 100}%` }} /></span>
+              <span className="fair-n">{n}</span>
+            </div>
+          ))}
+        </div>
+        <p className="muted small">The orange line is a fair share ({Math.round(fairShare * 100)}%).</p>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={inTurn}
+            onChange={(e) => update((d) => { const f = d.flats.find((x) => x.id === flat.id)!; f.rotation = e.target.checked ? [...f.rotation, me.id] : f.rotation.filter((x) => x !== me.id) })}
+          />
+          <span><strong>I take a turn ordering</strong><span className="muted small">Order: {flat.rotation.map(who).join(' → ') || 'nobody yet'}</span></span>
+        </label>
+      </details>
+    </section>
   )
 }
