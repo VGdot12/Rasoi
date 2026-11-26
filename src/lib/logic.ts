@@ -39,8 +39,8 @@ export const fmtDay = (date: string, today: string) => {
  *  that stays until the order is placed. */
 export const DEADLINES = { prompt: '19:30', note: '20:00', list: '22:00' }
 
-/** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 3 minutes). */
-export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 3 }
+/** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 10 minutes). */
+export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 10 }
 
 /** What happens on its own for the people you are not playing. */
 export const AUTO = {
