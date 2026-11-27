@@ -1,20 +1,46 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Milestones, SimBar } from '../components/Sim'
 import { VoiceNote } from '../components/ui'
 import { nameOf as ingName } from '../lib/catalogue'
+import { finishTask, startTask, taskOpen, track } from '../lib/analytics'
 import {
-  addDays, AUTO, buildList, DEADLINES, eveningOrDraft, finalDish, firstName, fmtTime, nameOf,
-  markReceived, receiveOpensAt, stageOf, weekReady, type Line,
+  addDays, answerHandover, AUTO, buildList, DEADLINES, eveningOrDraft, finalDish, firstName, fmtTime, nameOf,
+  markReceived, receiveOpensAt, stageOf, toMin, weekday, weekReady, type Line,
 } from '../lib/logic'
+import { weekOf } from '../lib/metrics'
+import type { DB } from '../lib/types'
 import { useStore } from '../lib/store'
 import { AddItemSheet, OrderSheet } from './Sheets'
 
 // Home: one card that says the one thing to do now for tomorrow's cooking. Everything else is secondary and kept short.
 
+/** Two days a week, a flatmate who isn't tonight's owner is asked "Did didi have everything today?" (spot check). */
+export function isSpotCheckDay(flatId: string, date: string) {
+  const key = flatId + weekOf(date).start
+  const h = key.split('').reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7)
+  const wd = weekday(date)
+  return wd === h % 7 || wd === (h + 3) % 7
+}
+
+const hasEvent = (d: DB, flatId: string, date: string, name: string, pred: (p: Record<string, unknown>) => boolean = () => true) =>
+  (d.events ?? []).some((e) => e.flat_id === flatId && e.evening_date === date && e.event_name === name && pred(e.props))
+
 export function Home({ goTo }: { goTo: (tab: string) => void }) {
-  const { db, me, flat, tonight, time, updateTonight } = useStore()
+  const { db, me, flat, tonight, today, time, update, updateTonight } = useStore()
   const [order, setOrder] = useState(false)
   const [add, setAdd] = useState(false)
+  const stageNow = tonight ? stageOf(tonight, time) : null
+  const ownerNow = !!me && tonight?.ownerId === me.id
+  const receiveOpen = !!tonight?.ordered && !tonight.received && time >= receiveOpensAt(tonight)
+  // The owner's "what's low?" fallback is an ask (once per evening).
+  useEffect(() => {
+    if (stageNow === 'no-note' && ownerNow && flat && me)
+      update((d) => track(d, 'ask_sent', { flatId: flat.id, who: '', at: DEADLINES.note, once: 'owner_fallback' }, { ask_type: 'owner_fallback', recipient: '', channel: 'in_app' }))
+  }, [stageNow, ownerNow]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Effort: confirm_delivery runs from the "Has it arrived?" card to the tap.
+  useEffect(() => {
+    if (receiveOpen && !taskOpen('confirm_delivery')) startTask('confirm_delivery', 0)
+  }, [receiveOpen])
   if (!me || !flat || !tonight) return null
 
   const stage = stageOf(tonight, time)
@@ -40,6 +66,17 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
       </div>
       <Milestones />
 
+      {tonight.handoverPending?.to === me.id && (
+        <section className="card compact decide">
+          <div className="card-title">Can you order tonight?</div>
+          <p>{firstName(nameOf(db, tonight.handoverPending.from))} can't do it tonight and asked you to take the turn.</p>
+          <div className="row gap8">
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => updateTonight((e, d) => answerHandover(d, e, true, time))}>Yes, I'll order</button>
+            <button type="button" className="btn btn-quiet btn-sm" onClick={() => updateTonight((e, d) => answerHandover(d, e, false, time))}>Not tonight</button>
+          </div>
+        </section>
+      )}
+
       {stage === 'received' ? (
         <Finale />
       ) : (
@@ -59,7 +96,10 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
             (isOwner ? (
               <Now title={`${cook}'s note hasn't come`} body={`If tomorrow is ${tonight.suggestion || 'the usual'}, what's low? Add it and you're done.`}>
                 <button type="button" className="btn btn-primary btn-block" onClick={() => setAdd(true)}>Add what's low</button>
-                <button type="button" className="btn btn-quiet" disabled={!lines.length} onClick={() => updateTonight((e) => void (e.fallbackAnswered = true))}>That's everything</button>
+                <button type="button" className="btn btn-quiet" disabled={!lines.length} onClick={() => updateTonight((e, d) => {
+                  e.fallbackAnswered = true
+                  track(d, 'owner_fallback_completed', { flatId: flat.id, who: me.id }, { items_count: lines.length, minutes_after_8pm: toMin(time) - toMin(DEADLINES.note) })
+                })}>That's everything</button>
               </Now>
             ) : (
               <Now title={`${cook}'s note hasn't come`} body={`${owner} will add what's low. You can add too.`}>
@@ -97,7 +137,13 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
               tone={canReceive ? 'action' : 'calm'}
             >
               {canReceive ? (
-                <button type="button" className="btn btn-primary btn-block" onClick={() => updateTonight((e, d) => markReceived(d, e, me.id, d.clock?.time ?? time))}>
+                <button type="button" className="btn btn-primary btn-block" onClick={() => {
+                  const done = finishTask('confirm_delivery')
+                  updateTonight((e, d) => {
+                    markReceived(d, e, me.id, d.clock?.time ?? time)
+                    if (done) track(d, 'task_completed', { flatId: flat.id, who: me.id }, done)
+                  })
+                }}>
                   ✓ Order received
                 </button>
               ) : (
@@ -122,13 +168,34 @@ export function Home({ goTo }: { goTo: (tab: string) => void }) {
                 : ''}
           </p>
           {(tonight.note.voiceUrl || tonight.note.voiceSecs > 0) && <VoiceNote url={tonight.note.voiceUrl} secs={tonight.note.voiceSecs} />}
+          {hasEvent(db, flat.id, today, 'top_up_reported') ? (
+            <p className="muted small">Extra order today reported.</p>
+          ) : (
+            <button type="button" className="link small-link" onClick={() => update((d) => track(d, 'top_up_reported', { flatId: flat.id, who: me.id }, { visit_date: today, items_count: 1, reported_by_role: 'flatmate' }))}>
+              We had to order extra today
+            </button>
+          )}
+        </section>
+      )}
+
+      {!isOwner && noteIn && !tonight.skipped && isSpotCheckDay(flat.id, today) && !hasEvent(db, flat.id, today, 'flatmate_spot_checked') && (
+        <section className="card compact">
+          <div className="card-title">Quick check</div>
+          <p>Did {cook} have everything she needed today?</p>
+          <div className="row gap8">
+            {[true, false].map((ok) => (
+              <button key={String(ok)} type="button" className="btn btn-outline btn-sm" onClick={() => update((d) => track(d, 'flatmate_spot_checked', { flatId: flat.id, who: me.id }, { visit_date: today, nothing_missing: ok }))}>
+                {ok ? '👍 Yes' : '👎 Something was missing'}
+              </button>
+            ))}
+          </div>
         </section>
       )}
 
       {dishDecisionNeeded && <DishCard />}
 
       <OrderSheet open={order} onClose={() => setOrder(false)} />
-      <AddItemSheet open={add} onClose={() => setAdd(false)} />
+      <AddItemSheet open={add} onClose={() => setAdd(false)} source={stage === 'no-note' && isOwner ? 'owner_fallback' : 'flatmate_sheet'} />
     </div>
   )
 }
@@ -161,7 +228,11 @@ function ListPreview({ lines, onOpen }: { lines: Line[]; onOpen: () => void }) {
 
 /** The end of the evening: the moment the product delivered. Peak-end rule: make it the one they remember. */
 function Finale() {
-  const { db, me, flat, tonight, today } = useStore()
+  const { db, me, flat, tonight, today, update } = useStore()
+  const share = me && flat && tonight?.ordered?.amount ? Math.round(tonight.ordered.amount / flat.memberIds.length) : 0
+  useEffect(() => {
+    if (me && flat) update((d) => track(d, 'evening_recap_viewed', { flatId: flat.id, who: me.id, once: 'recap:' + me.id }, { role: me.role, share_shown_inr: share }))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   if (!me || !flat || !tonight?.ordered || !tonight.received) return null
   const who = (id: string) => (id === me.id ? 'You' : firstName(nameOf(db, id)))
   const week = weekReady(db, flat, today)
@@ -191,21 +262,25 @@ function Finale() {
 
 /** Shown only when the flat has to decide: Didi didn't name tomorrow's dish. */
 function DishCard() {
-  const { flat, tonight, updateTonight } = useStore()
+  const { me, flat, tonight, update, updateTonight } = useStore()
   const [pick, setPick] = useState(false)
-  if (!flat || !tonight) return null
+  useEffect(() => {
+    if (flat && tonight && me) update((d) => track(d, 'dish_suggested', { flatId: flat.id, who: me.id, once: 'dish_suggested' }, { dish_id: tonight.suggestion, reason: 'not_made_this_week' }))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!flat || !tonight || !me) return null
+  const decided = (d: DB, method: string, dish: string) => track(d, 'dish_decided', { flatId: flat.id, who: me.id }, { method, dish_id: dish, decided_by_role: 'flatmate' })
   return (
     <section className="card compact decide">
       <div className="card-title">Decide tomorrow's dish</div>
       <p>{flat.cookName} hasn't picked one. How about <strong>{tonight.suggestion}</strong>? <span className="muted small">From your usual dishes, not made this week.</span></p>
       <div className="row gap8">
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => updateTonight((e) => { e.suggestionAnswer = 'accepted'; e.dish = e.suggestion; e.dishSource = 'suggestion' })}>Sounds good</button>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => updateTonight((e, d) => { e.suggestionAnswer = 'accepted'; e.dish = e.suggestion; e.dishSource = 'suggestion'; decided(d, 'suggestion_accepted', e.suggestion) })}>Sounds good</button>
         <button type="button" className="btn btn-quiet btn-sm" onClick={() => setPick(!pick)}>Something else</button>
       </div>
       {pick && (
         <div className="chips">
           {flat.usualDishes.filter((d) => d !== tonight.suggestion).map((d) => (
-            <button key={d} type="button" className="chip" onClick={() => { updateTonight((e) => { e.suggestionAnswer = 'changed'; e.dish = d; e.dishSource = 'flatmate' }); setPick(false) }}>{d}</button>
+            <button key={d} type="button" className="chip" onClick={() => { updateTonight((e, db2) => { e.suggestionAnswer = 'changed'; e.dish = d; e.dishSource = 'flatmate'; decided(db2, 'changed', d) }); setPick(false) }}>{d}</button>
           ))}
         </div>
       )}

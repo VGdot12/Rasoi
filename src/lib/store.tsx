@@ -1,16 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { DEADLINES, eveningOrDraft, findEvening, newEvening, now, SIM, simTick } from './logic'
+import { isSetupEvent, startEffortListener } from './analytics'
+import { addDays, DEADLINES, eveningOrDraft, findEvening, newEvening, now, SIM, simTick } from './logic'
 import { seedDB } from './seed'
 import type { DB, Evening, Flat, User } from './types'
 
-const KEY = 'rasoi-ready:app:v5'
+const KEY = 'rasoi-ready:app:v7'
 
 function load(): DB {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const db = JSON.parse(raw) as DB
-      if (db.version === 5) return db
+      if (db.version === 7) return db
     }
   } catch {
     /* storage unavailable */
@@ -43,11 +44,14 @@ interface Store {
   /** Change tonight's evening for my flat, creating it on first touch. */
   updateTonight: (fn: (e: Evening, d: DB) => void) => void
   reset: () => void
+  /** The team's analytics (opened from the Flat tab with the team password). */
+  metrics: { open: boolean; setOpen: (v: boolean) => void }
   sim: {
     running: boolean
     waitingForCook: boolean
     toggle: () => void
     resetEvening: () => void
+    nextDay: () => void
   }
 }
 
@@ -56,6 +60,7 @@ const Ctx = createContext<Store | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [db, setDb] = useState<DB>(load)
   useEffect(() => save(db), [db])
+  useEffect(() => startEffortListener(), [])
 
   const update = useCallback((fn: (d: DB) => void) => {
     setDb((prev) => {
@@ -67,6 +72,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // ---- prototype simulation: 7:30 pm to midnight, 20 s per hour ----
   const [running, setRunning] = useState(false)
+  const [metricsOpen, setMetricsOpen] = useState(false)
   useEffect(() => {
     if (!running) return
     const t = setInterval(() => {
@@ -114,6 +120,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (f && e.pantryAtStart) f.pantry = structuredClone(e.pantryAtStart)
       }
       d.evenings = d.evenings.filter((e) => e.date !== date)
+      // A restart re-runs the same evening, so its events are taken back out of the log
+      // (sign-ups and flat setup stay: they happened before the evening began).
+      d.events = (d.events ?? []).filter((x) => x.evening_date !== date || isSetupEvent(x))
       d.clock = { date, time: SIM.start }
     })
   }
@@ -126,6 +135,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRunning(!running)
     },
     resetEvening,
+    // After midnight: move on to the next evening. Turns rotate and the cook's next note
+    // answers "did today have everything?" about tonight's order.
+    nextDay: () => {
+      setRunning(false)
+      setWaitingForCook(false)
+      update((d) => void (d.clock = { date: addDays(now(d).date, 1), time: SIM.start }))
+    },
   }
 
   const updateTonight = useCallback(
@@ -146,7 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <Ctx.Provider value={{ db, me, flat, today, time, tonight, update, updateTonight, reset: () => { setRunning(false); setDb(seedDB()) }, sim }}>
+    <Ctx.Provider value={{ db, me, flat, today, time, tonight, update, updateTonight, reset: () => { setRunning(false); setDb(seedDB()) }, sim, metrics: { open: metricsOpen, setOpen: setMetricsOpen } }}>
       {children}
     </Ctx.Provider>
   )

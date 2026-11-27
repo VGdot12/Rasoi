@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { waShare } from '../components/ui'
 import { DISH_IDEAS, type Lang } from '../lib/catalogue'
+import { finishTask, track } from '../lib/analytics'
 import { inviteCode, isoDate, uid } from '../lib/logic'
 import { DEMO_CODE } from '../lib/seed'
 import { useStore } from '../lib/store'
@@ -53,9 +54,12 @@ function JoinFlat({ onBack }: { onBack?: () => void }) {
         f.cookName = u.name
         f.cookPhone = u.phone
         f.cookLang = u.lang
+        track(d, 'cook_joined', { flatId: f.id, who: u.id }, { connected_via: 'code', cook_language: u.lang })
       } else {
         if (!f.memberIds.includes(u.id)) f.memberIds.push(u.id)
         if (takeTurn && !f.rotation.includes(u.id)) f.rotation.push(u.id)
+        track(d, 'flat_joined', { flatId: f.id, who: u.id }, { joined_via: 'code', flatmate_count_after: f.memberIds.length })
+        track(d, 'rotation_changed', { flatId: f.id, who: u.id }, { in_rotation: takeTurn, turn_position: takeTurn ? f.rotation.indexOf(u.id) + 1 : 0, at_setup: true })
       }
     })
   return (
@@ -118,6 +122,16 @@ function CreateFlat({ onBack }: { onBack: () => void }) {
       staplesWeekday: f.staples,
       pantry: [],
     }
+    const custom = f.dishes.filter((x) => !DISH_IDEAS.includes(x)).length
+    const done = finishTask('flat_setup')
+    update((d) => {
+      d.flats.push(flat)
+      const ctx = { flatId: flat.id, who: me!.id }
+      track(d, 'flat_created', ctx, { area: flat.area, cook_visits_per_day: flat.cookVisits, cook_language: flat.cookLang, staples_day: flat.staplesWeekday, usual_dish_count: flat.usualDishes.length })
+      track(d, 'usual_dishes_shared', ctx, { dish_count: flat.usualDishes.length, source: 'setup', custom_dish_count: custom })
+      track(d, 'rotation_changed', ctx, { in_rotation: f.takeTurn, turn_position: f.takeTurn ? 1 : 0, at_setup: true })
+      if (done) track(d, 'task_completed', ctx, done)
+    })
     setCreated(flat)
   }
 
@@ -130,14 +144,13 @@ function CreateFlat({ onBack }: { onBack: () => void }) {
         <h2>{created.name} is ready</h2>
         <p className="muted">Invite your flatmates and your cook. They join with this code.</p>
         <div className="code-box">{created.code}</div>
-        <a className="btn btn-wa btn-block" href={waShare(invite)} target="_blank" rel="noreferrer">Invite flatmates on WhatsApp</a>
-        <a className="btn btn-outline btn-block" href={waShare(cookMsg)} target="_blank" rel="noreferrer">Send {created.cookName || 'your cook'} her link</a>
+        <a className="btn btn-wa btn-block" href={waShare(invite)} target="_blank" rel="noreferrer" onClick={() => update((d) => track(d, 'invite_sent', { flatId: created.id, who: me!.id }, { invitee: 'flatmate', channel: 'whatsapp' }))}>Invite flatmates on WhatsApp</a>
+        <a className="btn btn-outline btn-block" href={waShare(cookMsg)} target="_blank" rel="noreferrer" onClick={() => update((d) => track(d, 'invite_sent', { flatId: created.id, who: me!.id }, { invitee: 'cook', channel: 'whatsapp' }))}>Send {created.cookName || 'your cook'} her link</a>
         <button
           type="button"
           className="btn btn-primary btn-block"
           onClick={() =>
             update((d) => {
-              d.flats.push(created)
               const u = d.users.find((x) => x.id === d.sessionUserId)!
               u.flatId = created.id
             })

@@ -5,6 +5,7 @@ import { useStore } from './lib/store'
 import { Auth } from './screens/Auth'
 import { CookApp } from './screens/Cook'
 import { FlatStart } from './screens/FlatStart'
+import { MetricsView } from './screens/Metrics'
 import { Home } from './screens/Home'
 import { GroceriesTab } from './screens/Groceries'
 import { DishesTab, FlatTab } from './screens/Tabs'
@@ -17,9 +18,10 @@ const TABS = [
 ]
 
 export default function App() {
-  const { me, flat } = useStore()
+  const { me, flat, metrics } = useStore()
   return (
     <div className="stage">
+      {metrics.open && <MetricsView />}
       <div className="device">
         {!me ? <Auth /> : !flat ? <FlatStart /> : me.role === 'cook' ? <CookShell /> : <FlatmateShell key={me.id} />}
       </div>

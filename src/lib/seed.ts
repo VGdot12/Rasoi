@@ -1,8 +1,10 @@
 // A sample flat so the prototype can be explored straight away:
-// Quad 3, three flatmates who share a cook (our persona, Rohan), with two weeks of history.
+// Quad 3, three flatmates who share a cook (our persona, Rohan). It has no made-up history:
+// the flat was set up the day before, and every evening in it is one somebody played.
 
-import { addDays, isoDate, newEvening, SIM, weekday } from './logic'
-import type { DB, Evening, Flat, OrderApp, User } from './types'
+import { track } from './analytics'
+import { addDays, isoDate, SIM, weekday } from './logic'
+import type { DB, Flat, User } from './types'
 
 export const DEMO_CODE = 'QUAD03'
 export const DEMO_PHONES = { rohan: '9876500001', aditya: '9876500002', karan: '9876500003', cook: '9876500009' }
@@ -20,7 +22,7 @@ export function seedDB(): DB {
     name: 'Quad 3',
     area: 'ISB campus, Gachibowli',
     code: DEMO_CODE,
-    createdAt: addDays(today, -14),
+    createdAt: addDays(today, -1),
     memberIds: ['u_rohan', 'u_aditya', 'u_karan'],
     rotation: ['u_aditya', 'u_karan', 'u_rohan'],
     cookId: 'u_sunita',
@@ -45,49 +47,27 @@ export function seedDB(): DB {
     ],
   }
 
-  const db: DB = { version: 5, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: SIM.start } }
+  const db: DB = { version: 7, users, flats: [flat], evenings: [], sessionUserId: null, clock: { date: today, time: SIM.start }, events: [] }
 
-  // Two weeks of evenings, built in order so turns rotate exactly as the app would rotate them.
-  const itemsPool = [['onion', 'tomato', 'curd'], ['milk', 'coriander'], ['potato', 'chilli', 'ginger'], ['paneer', 'tomato'], ['bhindi', 'onion'], ['egg', 'bread', 'milk'], ['spinach', 'garlic'], ['lemon', 'curd']]
-  const apps: OrderApp[] = ['Blinkit', 'Zepto', 'Blinkit', 'Instamart']
-  for (let i = 13; i >= 1; i--) {
-    const date = addDays(today, -i)
-    const e: Evening = newEvening(db, flat, date)
-    if (i === 9) {
-      e.skipped = true
-      db.evenings.push(e)
-      continue
-    }
-    const missedYesterday = i === 6 || i === 11
-    e.note = {
-      at: `19:${String(10 + ((i * 7) % 45)).padStart(2, '0')}`,
-      todayAllGood: !missedYesterday,
-      todayMissing: missedYesterday ? ['curd'] : [],
-      dish: i % 3 === 0 ? '' : flat.usualDishes[(i * 5) % flat.usualDishes.length],
-      items: itemsPool[i % itemsPool.length],
-      voiceUrl: '',
-      voiceSecs: 14 + i,
-      staplesChecked: weekday(date) === flat.staplesWeekday,
-      dayOffTomorrow: false,
-    }
-    if (e.note.dish) {
-      e.dish = e.note.dish
-      e.dishSource = 'cook'
-    } else {
-      e.suggestionAnswer = 'accepted'
-      e.dish = e.suggestion
-      e.dishSource = 'suggestion'
-    }
-    // i === 7: the owner did not order (one of the missed visits followed it)
-    if (i !== 7) {
-      e.ordered = { by: i === 4 ? 'u_rohan' : e.ownerId, at: `22:${String(5 + i * 3).padStart(2, '0')}`, app: apps[i % apps.length], amount: 180 + i * 23 }
-      e.received = { by: db.flats[0].memberIds[i % 3], at: `22:${String(20 + i * 3).padStart(2, '0')}` }
-    }
-    if (i === 4) e.handedOverFrom = e.ownerId
-    if (i === 4) e.ownerId = 'u_rohan'
-    db.evenings.push(e)
-  }
+  backfillEvents(db, flat)
   return db
+}
+
+/** How the sample flat was set up, as events (the day before the first evening), so setup metrics have a start. */
+function backfillEvents(db: DB, flat: Flat) {
+  const start = flat.createdAt
+  const f = flat.id
+  for (const id of ['u_rohan', 'u_aditya', 'u_karan', 'u_sunita'])
+    track(db, 'user_signed_up', { flatId: f, who: id, date: start, at: '18:00' }, { role: id === 'u_sunita' ? 'cook' : 'flatmate', ...(id === 'u_sunita' ? { cook_language: 'hi' } : {}) })
+  track(db, 'flat_created', { flatId: f, who: 'u_rohan', date: start, at: '18:05' }, { area: flat.area, cook_visits_per_day: flat.cookVisits, cook_language: flat.cookLang, staples_day: flat.staplesWeekday, usual_dish_count: flat.usualDishes.length })
+  track(db, 'usual_dishes_shared', { flatId: f, who: 'u_rohan', date: start, at: '18:05' }, { dish_count: flat.usualDishes.length, source: 'setup', custom_dish_count: 0 })
+  track(db, 'invite_sent', { flatId: f, who: 'u_rohan', date: start, at: '18:06' }, { invitee: 'flatmate', channel: 'whatsapp' })
+  track(db, 'invite_sent', { flatId: f, who: 'u_rohan', date: start, at: '18:06' }, { invitee: 'cook', channel: 'whatsapp' })
+  flat.rotation.forEach((id, i) => {
+    if (id !== 'u_rohan') track(db, 'flat_joined', { flatId: f, who: id, date: start, at: '18:20' }, { joined_via: 'code', flatmate_count_after: i + 2 })
+    track(db, 'rotation_changed', { flatId: f, who: id, date: start, at: '18:20' }, { in_rotation: true, turn_position: i + 1, at_setup: true })
+  })
+  track(db, 'cook_joined', { flatId: f, who: 'u_sunita', date: start, at: '18:40' }, { connected_via: 'saved_number', cook_language: 'hi' })
 }
 
 /** The three journeys you can take in the prototype. Picked once, at the start. */

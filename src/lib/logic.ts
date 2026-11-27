@@ -1,5 +1,6 @@
 import { byKey, INGREDIENTS } from './catalogue'
-import type { DB, Evening, Flat, ListLine, User } from './types'
+import { personId as hashPerson, track } from './analytics'
+import type { DB, Evening, Flat, ListLine, OrderApp, User } from './types'
 
 // ---------- time ----------
 
@@ -39,7 +40,8 @@ export const fmtDay = (date: string, today: string) => {
  *  that stays until the order is placed. */
 export const DEADLINES = { prompt: '19:30', note: '20:00', list: '22:00' }
 
-/** Prototype simulation: 7:30 pm to midnight, 20 seconds per hour (1 second = 10 minutes). */
+/** Prototype simulation: 7:30 pm to midnight. Each real second moves the clock minutesPerSecond minutes
+ *  (10 = about 6 seconds per hour, 27 seconds for the evening). */
 export const SIM = { start: '19:30', end: '24:00', minutesPerSecond: 10 }
 
 /** What happens on its own for the people you are not playing. */
@@ -177,17 +179,61 @@ export function stageOf(e: Evening, time: string): Stage {
 
 /** The delivery arrived: tonight's items move into the kitchen. */
 export function markReceived(d: DB, e: Evening, by: string, at: string) {
+  if (e.received) return
   e.received = { by, at }
   const f = d.flats.find((x) => x.id === e.flatId)
   if (!f) return
   f.pantry = f.pantry ?? []
-  for (const l of buildList(e)) {
+  const lines = buildList(e)
+  for (const l of lines) {
     const item = { key: l.key, qty: l.qty, since: e.date }
     const i = f.pantry.findIndex((p) => p.key === l.key)
     if (i >= 0) f.pantry.splice(i, 1)
     f.pantry.unshift(item)
   }
+  track(d, 'order_received', { flatId: f.id, who: by, at, date: e.date }, {
+    received_by_owner: by === e.ownerId,
+    minutes_after_order: e.ordered ? toMin(at) - toMin(e.ordered.at) : null,
+    items_moved_to_kitchen: lines.length,
+  })
 }
+
+/** The owner taps Order placed (or, in the simulation, the owner you aren't playing does). */
+export function confirmOrder(d: DB, e: Evening, by: string, at: string, app: OrderApp, amount: number | null) {
+  if (e.ordered) return
+  e.ordered = { by, at, app, amount }
+  track(d, 'order_confirmed', { flatId: e.flatId, who: by, at, date: e.date }, {
+    app_used: app.toLowerCase(),
+    item_count: buildList(e).length,
+    bill_entered: amount !== null,
+    bill_amount_inr: amount,
+    minutes_after_list: toMin(at) - toMin(DEADLINES.list),
+  })
+}
+
+/** Tonight's owner asks another flatmate to take over. It switches only when they accept. */
+export function requestHandover(d: DB, e: Evening, from: string, to: string, at: string) {
+  e.handoverPending = { from, to, at }
+  track(d, 'ask_sent', { flatId: e.flatId, who: '', at, date: e.date }, { ask_type: 'handover_request', recipient: personIdOf(d, e.flatId, to), channel: 'in_app' })
+}
+
+export function answerHandover(d: DB, e: Evening, accepted: boolean, at: string) {
+  const p = e.handoverPending
+  if (!p) return
+  if (accepted) {
+    e.handedOverFrom = p.from
+    e.ownerId = p.to
+  }
+  e.handoverPending = null
+  track(d, 'turn_handed_over', { flatId: e.flatId, who: p.to, at, date: e.date }, {
+    from_person_id: personIdOf(d, e.flatId, p.from),
+    to_person_id: personIdOf(d, e.flatId, p.to),
+    accepted,
+    minutes_after_list: toMin(at) - toMin(DEADLINES.list),
+  })
+}
+
+const personIdOf = (d: DB, flatId: string, who: string) => hashPerson(d, who, flatId)
 
 /** The cook said these ran out today: they leave the kitchen. */
 export function removeFromPantry(d: DB, flatId: string, keys: string[]) {
@@ -227,14 +273,18 @@ export function simTick(d: DB) {
       d.evenings.push(e)
     }
     const isCook = viewer.role === 'cook'
-    const isOwner = viewer.id === e.ownerId
+    // The cook's one ask a day: her evening prompt.
+    if (!e.note) track(d, 'ask_sent', { flatId: f.id, who: '', at: DEADLINES.prompt, date: e.date, once: 'cook_prompt' }, { ask_type: 'cook_prompt', recipient: hashPerson(d, f.cookId ?? 'cook', f.id), channel: 'in_app' })
     if (next >= DEADLINES.note && !e.note && !e.fallbackAnswered) {
       if (isCook) next = DEADLINES.note // her journey: wait for her note
       else autoNote(d, f, e)
     }
-    if (next >= AUTO.orderAt && !e.ordered && !isOwner && buildList(e).length) {
-      e.ordered = { by: e.ownerId, at: AUTO.orderAt, app: 'Blinkit', amount: 540 }
-    }
+    // A hand-over to someone you aren't playing is accepted 10 minutes later.
+    if (e.handoverPending && e.handoverPending.to !== viewer.id && toMin(next) >= toMin(e.handoverPending.at) + 10) answerHandover(d, e, true, fromMin(toMin(e.handoverPending.at) + 10))
+    // 10 pm: the list goes out, and tonight's owner gets the one reminder.
+    if (c.time < DEADLINES.list && next >= DEADLINES.list && (e.note || e.fallbackAnswered)) postList(d, f, e)
+    const isOwner = viewer.id === e.ownerId
+    if (next >= AUTO.orderAt && !e.ordered && !isOwner && buildList(e).length) confirmOrder(d, e, e.ownerId, AUTO.orderAt, 'Blinkit', 540)
     if (e.ordered && !e.received && !isOwner) {
       const at = isCook ? AUTO.receiveInCookView : AUTO.receiveByFlatmateView
       const by = isCook ? f.memberIds.find((id) => id !== e!.ownerId) ?? e.ownerId : e.ownerId
@@ -244,10 +294,26 @@ export function simTick(d: DB) {
   d.clock = { date: c.date, time: next }
 }
 
+/** 10 pm: list_posted (a server event) and the owner's reminder, which stays until the order is placed. */
+export function postList(d: DB, f: Flat, e: Evening) {
+  const lines = buildList(e)
+  const fromCook = lines.filter((l) => l.addedBy === 'cook').length
+  track(d, 'list_posted', { flatId: f.id, who: '', at: DEADLINES.list, date: e.date, once: 'list_posted' }, {
+    item_count: lines.length,
+    from_cook_count: fromCook,
+    from_flatmates_count: lines.length - fromCook,
+    minutes_after_note: e.note ? toMin(DEADLINES.list) - toMin(e.note.at) : null,
+    owner_person_id: hashPerson(d, e.ownerId, f.id),
+    turn_number: e.turnIndex + 1,
+  })
+  if (lines.length && !e.ordered)
+    track(d, 'ask_sent', { flatId: f.id, who: '', at: DEADLINES.list, date: e.date, once: 'owner_reminder' }, { ask_type: 'owner_reminder', recipient: hashPerson(d, e.ownerId, f.id), channel: 'in_app' })
+}
+
 export const finalDish = (e: Evening) => e.dish || (e.suggestionAnswer === 'accepted' ? e.suggestion : '')
 
 /** In the simulation, Didi's note arrives at 8 pm if she has not sent one herself. */
-export function autoNote(db: DB, _flat: Flat, e: Evening) {
+export function autoNote(db: DB, flat: Flat, e: Evening) {
   const seed = toMin(db.clock?.time ?? '20:00') + e.date.split('-').reduce((n, x) => n + Number(x), 0)
   const daily = INGREDIENTS.filter((i) => !i.staple)
   const items: string[] = []
@@ -255,8 +321,66 @@ export function autoNote(db: DB, _flat: Flat, e: Evening) {
     const key = daily[(seed + k * 7) % daily.length].key
     if (!items.includes(key)) items.push(key)
   }
+  // "Did today have everything?" follows from last night's order.
+  const prev = findEvening(db, flat.id, addDays(e.date, -1))
+  const prevLines = prev && !prev.skipped ? buildList(prev) : []
+  const gotAll = !prev || prev.skipped || !prevLines.length || !!prev.received
+  const missing = gotAll ? [] : prevLines.slice(0, 1).map((l) => l.key)
   // She doesn't name a dish in the simulated note, so the flat sees the dish decision.
-  e.note = { at: DEADLINES.note, todayAllGood: true, todayMissing: [], dish: '', items, voiceUrl: '', voiceSecs: 19, staplesChecked: false, dayOffTomorrow: false }
+  e.note = {
+    at: DEADLINES.note, todayAllGood: gotAll, todayMissing: missing, dish: '', items, voiceUrl: '', voiceSecs: 19, staplesChecked: false, dayOffTomorrow: false,
+    plannedDishCooked: prev && finalDish(prev) ? true : null, topUp: false, notFresh: [], dishWasSuggested: false, prompted: wasPrompted(db, flat.id, e.date),
+  }
+  if (missing.length) removeFromPantry(db, flat.id, missing)
+  fireNoteEvents(db, flat, e, flat.cookId ?? 'cook')
+}
+
+/** Whether the cook's prompt reached her before her note ("came back" when it didn't). */
+export const wasPrompted = (d: DB, flatId: string, date: string) =>
+  (d.events ?? []).some((x) => x.flat_id === flatId && x.evening_date === date && x.event_name === 'ask_sent' && x.props.ask_type === 'cook_prompt')
+
+const itemId = (k: string) => (byKey(k) ? k : 'custom')
+const qtyParts = (q: string) => {
+  const [a, u] = q.split(' ')
+  return { quantity: Number(a) || null, unit: u || null }
+}
+
+/** Everything the cook's note sends (spec section 5): the note, her visit check, items, dish, day off, top-up, freshness. */
+export function fireNoteEvents(d: DB, f: Flat, e: Evening, who: string, edited = false) {
+  const n = e.note
+  if (!n) return
+  const ctx = { flatId: f.id, who, at: n.at, date: e.date }
+  track(d, 'cook_note_received', ctx, {
+    minutes_vs_8pm: toMin(n.at) - toMin(DEADLINES.note),
+    dish_named: !!n.dish,
+    dish_was_suggested: !!n.dishWasSuggested,
+    running_out_count: n.items.length,
+    has_voice_note: n.voiceSecs > 0,
+    voice_seconds: n.voiceSecs,
+    prompted: n.prompted ?? true,
+    edited,
+  })
+  for (const slot of f.cookVisits === 2 ? ['morning', 'evening'] : ['evening'])
+    track(d, 'cook_visit_checked', ctx, {
+      visit_date: e.date,
+      visit_slot: slot,
+      nothing_missing: n.todayAllGood === true,
+      missing_item_ids: n.todayMissing.map(itemId),
+      planned_dish_cooked: n.plannedDishCooked ?? null,
+    })
+  if (n.topUp) track(d, 'top_up_reported', ctx, { visit_date: e.date, items_count: n.todayMissing.length || 1, reported_by_role: 'cook' })
+  for (const k of n.notFresh ?? []) track(d, 'freshness_reported', ctx, { item_id: itemId(k), reported_by_role: 'cook' })
+  if (!edited)
+    for (const k of n.items)
+      track(d, 'item_added', ctx, {
+        source: byKey(k)?.staple && n.staplesChecked ? 'staples_day' : 'cook_note',
+        item_id: itemId(k),
+        ...qtyParts(byKey(k)?.qty ?? '1 Nos'),
+        list_for: 'tonight',
+        before_list_posted: true,
+      })
+  if (n.dish) track(d, 'dish_decided', ctx, { method: 'cook_named', dish_id: n.dish, decided_by_role: 'cook' })
+  if (n.dayOffTomorrow) track(d, 'cook_day_off_marked', ctx, { for_date: addDays(e.date, 1) })
 }
 
 // ---------- notifications ----------
@@ -320,15 +444,25 @@ export function weekReady(db: DB, flat: Flat, today: string) {
   return { ready: es.filter((e) => e.note!.todayAllGood === true).length, visits: es.length }
 }
 
-/** Put an item on an evening's list (tonight's, or tomorrow's once tonight's order is placed). */
-export function addToEvening(d: DB, flatId: string, date: string, key: string, qty: string, by: string) {
+/** Put an item on an evening's list (tonight's, or tomorrow's once tonight's order is placed). Returns false if already there. */
+export function addToEvening(d: DB, flatId: string, date: string, key: string, qty: string, by: string, source = 'flatmate_sheet') {
   const f = d.flats.find((x) => x.id === flatId)
-  if (!f) return
+  if (!f) return false
   let e = findEvening(d, flatId, date)
   if (!e) {
     e = newEvening(d, f, date)
     d.evenings.push(e)
   }
   e.removed = e.removed.filter((r) => r !== key)
-  if (!e.extras.some((x) => x.key === key) && !e.note?.items.includes(key)) e.extras.push({ key, qty, addedBy: by })
+  if (e.extras.some((x) => x.key === key) || e.note?.items.includes(key)) return false
+  e.extras.push({ key, qty, addedBy: by })
+  const clock = now(d)
+  track(d, 'item_added', { flatId, who: by, date: clock.date }, {
+    source,
+    item_id: itemId(key),
+    ...qtyParts(qty),
+    list_for: date === clock.date ? 'tonight' : 'tomorrow',
+    before_list_posted: clock.time < DEADLINES.list,
+  })
+  return true
 }
