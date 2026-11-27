@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Milestones, SimBar } from '../components/Sim'
 import { Recorder, VoiceNote } from '../components/ui'
 import { INGREDIENTS, nameOf as ingName, STAPLE_KEYS, type Lang } from '../lib/catalogue'
 import { t } from '../lib/i18n'
-import { buildList, firstName, nameOf, removeFromPantry, weekday } from '../lib/logic'
+import { finishTask, startTask, taskOpen, track } from '../lib/analytics'
+import { addDays, buildList, finalDish, findEvening, fireNoteEvents, firstName, nameOf, removeFromPantry, wasPrompted, weekday } from '../lib/logic'
 import { useStore } from '../lib/store'
 import type { CookNote } from '../lib/types'
 
@@ -24,8 +25,25 @@ export function CookApp() {
     voiceSecs: existing?.voiceSecs ?? 0,
     staplesChecked: existing?.staplesChecked ?? false,
     dayOffTomorrow: existing?.dayOffTomorrow ?? false,
+    plannedDishCooked: existing?.plannedDishCooked ?? null,
+    topUp: existing?.topUp ?? false,
+    notFresh: existing?.notFresh ?? [],
   }))
+  // Effort: cook_note runs from her screen opening to Send.
+  const writing = !existing || editing
+  useEffect(() => {
+    if (writing && !taskOpen('cook_note')) startTask('cook_note', editing ? 1 : 0)
+  }, [writing]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The end of her evening: evening_recap_viewed, once.
+  const done = !!tonight?.received && !writing
+  useEffect(() => {
+    if (done && me && flat) update((d) => track(d, 'evening_recap_viewed', { flatId: flat.id, who: me.id, once: 'recap:' + me.id }, { role: 'cook', share_shown_inr: 0 }))
+  }, [done]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!me || !flat || !tonight) return null
+  const prevDish = (() => {
+    const p = findEvening(db, flat.id, addDays(today, -1))
+    return p && !p.skipped ? finalDish(p) : ''
+  })()
 
   const staplesDay = weekday(today) === flat.staplesWeekday
   const toggle = (list: string[], k: string) => (list.includes(k) ? list.filter((x) => x !== k) : [...list, k])
@@ -33,8 +51,18 @@ export function CookApp() {
   const label = (k: string) => (lang === 'en' ? ingName(k, 'en') : ingName(k, lang))
 
   const send = () => {
+    const task = finishTask('cook_note')
     updateTonight((e, d) => {
-      e.note = { ...draft, at: time, staplesChecked: staplesDay }
+      const edited = !!e.note
+      e.note = {
+        ...draft,
+        at: time,
+        staplesChecked: staplesDay,
+        plannedDishCooked: prevDish ? draft.plannedDishCooked ?? null : null,
+        prompted: wasPrompted(d, flat.id, e.date),
+        dishWasSuggested: !!draft.dish && draft.dish === e.suggestion,
+        edited,
+      }
       if (draft.todayAllGood === false) removeFromPantry(d, e.flatId, draft.todayMissing)
       e.skipped = draft.dayOffTomorrow
       if (draft.dish) {
@@ -44,6 +72,8 @@ export function CookApp() {
         e.dish = ''
         e.dishSource = ''
       }
+      fireNoteEvents(d, flat, e, me.id, edited)
+      if (task) track(d, 'task_completed', { flatId: flat.id, who: me.id }, task)
     })
     setEditing(false)
   }
@@ -127,7 +157,28 @@ export function CookApp() {
                 </button>
               ))}
             </div>
+            <div className="muted small">🥀 {L('notFresh')}</div>
+            <div className="cook-tiles small-pick">
+              {DAILY.filter((i) => i.veg).map((i) => (
+                <button key={i.key} type="button" className={`ctile ${(draft.notFresh ?? []).includes(i.key) ? 'on bad' : ''}`} onClick={() => setDraft({ ...draft, notFresh: toggle(draft.notFresh ?? [], i.key) })}>
+                  <span className="ctile-emoji">{i.emoji}</span><span>{label(i.key)}</span>
+                </button>
+              ))}
+            </div>
+            <label className="toggle">
+              <input type="checkbox" checked={!!draft.topUp} onChange={(e) => setDraft({ ...draft, topUp: e.target.checked })} />
+              <span><strong>🛵 {L('topUp')}</strong></span>
+            </label>
           </>
+        )}
+        {prevDish && draft.todayAllGood !== null && (
+          <div className="planned">
+            <div className="muted small">{L('planned')} <strong>{prevDish}</strong>?</div>
+            <div className="seg">
+              <button type="button" className={draft.plannedDishCooked === true ? 'on' : ''} onClick={() => setDraft({ ...draft, plannedDishCooked: true })}>✓ {L('plannedYes')}</button>
+              <button type="button" className={draft.plannedDishCooked === false ? 'on' : ''} onClick={() => setDraft({ ...draft, plannedDishCooked: false })}>{L('plannedNo')}</button>
+            </div>
+          </div>
         )}
       </section>
 

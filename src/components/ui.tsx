@@ -33,13 +33,14 @@ export function Avatar({ name, size = 32, tone }: { name: string; size?: number;
   )
 }
 
-export function CopyBtn({ text, label, className = 'btn btn-outline' }: { text: string; label: string; className?: string }) {
+export function CopyBtn({ text, label, className = 'btn btn-outline', onCopy }: { text: string; label: string; className?: string; onCopy?: () => void }) {
   const [done, setDone] = useState(false)
   return (
     <button
       type="button"
       className={className}
       onClick={async () => {
+        onCopy?.()
         try {
           await navigator.clipboard.writeText(text)
         } catch {
@@ -145,5 +146,15 @@ export function QtyPicker({ value, type, onChange, disabled, label }: { value: s
         {units.map((u) => <option key={u} value={u}>{u}</option>)}
       </select>
     </span>
+  )
+}
+
+/** Two taps for something you can't undo (the page's own confirm dialog is blocked in some frames). */
+export function ConfirmTwice({ label, confirmLabel, onConfirm, className = 'btn btn-outline' }: { label: string; confirmLabel: string; onConfirm: () => void; className?: string }) {
+  const [armed, setArmed] = useState(false)
+  return (
+    <button type="button" className={className} onBlur={() => setArmed(false)} onClick={() => (armed ? onConfirm() : setArmed(true))}>
+      {armed ? confirmLabel : label}
+    </button>
   )
 }

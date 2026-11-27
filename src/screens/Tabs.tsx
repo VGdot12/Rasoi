@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Avatar, CopyBtn, waShare } from '../components/ui'
-import { addDays, fairness, firstName, fmtDay, nameOf, upcomingTurns } from '../lib/logic'
+import { finishTask, startTask, track } from '../lib/analytics'
+import { DISH_IDEAS } from '../lib/catalogue'
+import { Avatar, ConfirmTwice, CopyBtn, waShare } from '../components/ui'
+import { addDays, fairness, firstName, fmtDay, nameOf, requestHandover, upcomingTurns } from '../lib/logic'
 import { useStore } from '../lib/store'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -15,7 +17,13 @@ export function DishesTab() {
     .filter((e) => e.flatId === flat.id && e.date < today && e.dish && !e.skipped)
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .slice(0, 7)
-  const setDishes = (fn: (d: string[]) => string[]) => update((d) => { const f = d.flats.find((x) => x.id === flat.id)!; f.usualDishes = fn(f.usualDishes) })
+  const { me } = useStore()
+  const setDishes = (fn: (d: string[]) => string[]) =>
+    update((d) => {
+      const f = d.flats.find((x) => x.id === flat.id)!
+      f.usualDishes = fn(f.usualDishes)
+      track(d, 'usual_dishes_shared', { flatId: f.id, who: me?.id ?? '' }, { dish_count: f.usualDishes.length, source: 'dishes_tab', custom_dish_count: f.usualDishes.filter((x) => !DISH_IDEAS.includes(x)).length })
+    })
   const n = flat.usualDishes.length
 
   return (
@@ -68,6 +76,8 @@ export function FlatTab() {
   const cookMsg = `${flat.cookName || 'Didi'}, kal kya banana hai aur kya khatam ho raha hai, ab Rasoi Ready par bataiye. Code: ${flat.code}`
   const per = Math.round(149 / Math.max(1, flat.memberIds.length))
   const setFlat = (fn: (f: NonNullable<typeof flat>) => void) => update((d) => { const f = d.flats.find((x) => x.id === flat.id)!; fn(f) })
+  const ctx = { flatId: flat.id, who: me.id }
+  const invited = (invitee: string, channel: string) => update((d) => track(d, 'invite_sent', ctx, { invitee, channel }))
 
   return (
     <div className="screen">
@@ -90,9 +100,9 @@ export function FlatTab() {
         <div className="invite">
           <span className="muted small">Invite code</span>
           <span className="code-inline">{flat.code}</span>
-          <CopyBtn text={flat.code} label="Copy" className="btn btn-outline btn-sm" />
+          <CopyBtn text={flat.code} label="Copy" className="btn btn-outline btn-sm" onCopy={() => invited('flatmate', 'copy')} />
         </div>
-        <a className="btn btn-wa btn-block" href={waShare(invite)} target="_blank" rel="noreferrer">Invite on WhatsApp</a>
+        <a className="btn btn-wa btn-block" href={waShare(invite)} target="_blank" rel="noreferrer" onClick={() => invited('flatmate', 'whatsapp')}>Invite on WhatsApp</a>
       </section>
 
       <section className="card">
@@ -105,7 +115,7 @@ export function FlatTab() {
             {flat.cookId ? <span className="tag tag-done">on the app</span> : <span className="tag">not joined yet</span>}
           </li>
         </ul>
-        {!flat.cookId && <a className="btn btn-outline btn-block" href={waShare(cookMsg)} target="_blank" rel="noreferrer">Send {flat.cookName || 'her'} the link</a>}
+        {!flat.cookId && <a className="btn btn-outline btn-block" href={waShare(cookMsg)} target="_blank" rel="noreferrer" onClick={() => invited('cook', 'whatsapp')}>Send {flat.cookName || 'her'} the link</a>}
         <label className="field">
           <span>Weekly staples check (atta, rice, oil, dal)</span>
           <select value={flat.staplesWeekday} onChange={(e) => setFlat((f) => void (f.staplesWeekday = Number(e.target.value)))}>
@@ -114,11 +124,7 @@ export function FlatTab() {
         </label>
       </section>
 
-      <section className="card plan">
-        <div className="card-title">Plan</div>
-        <p><strong>₹149 a month for the flat</strong>, split between flatmates: about ₹{per} each.</p>
-        <p className="muted small">Less than one dinner ordered in when the cook couldn't cook. Free while you try it.</p>
-      </section>
+      <PlanCard per={per} />
 
       <section className="card">
         <div className="card-title">How Rasoi Ready works</div>
@@ -131,8 +137,81 @@ export function FlatTab() {
         <p className="fine">We never order without you, and we don't deliver or take payments.</p>
       </section>
 
+      <section className="card compact">
+        <div className="card-title">Settings</div>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={!!me.muted}
+            onChange={(e) => update((d) => {
+              const u = d.users.find((x) => x.id === me.id)!
+              u.muted = e.target.checked
+              if (e.target.checked) track(d, 'flat_muted_or_left', ctx, { scope: 'person', reason: 'muted reminders' })
+            })}
+          />
+          <span><strong>Mute reminders</strong><span className="muted small">You'll still see everything in the app.</span></span>
+        </label>
+        <ConfirmTwice
+          className="btn btn-quiet btn-sm danger"
+          label="Leave this flat"
+          confirmLabel="Tap again to leave"
+          onConfirm={() => update((d) => {
+            const f = d.flats.find((x) => x.id === flat.id)!
+            const last = f.memberIds.length === 1
+            track(d, 'flat_muted_or_left', ctx, { scope: last ? 'flat' : 'person', reason: 'left the flat' })
+            f.memberIds = f.memberIds.filter((x) => x !== me.id)
+            f.rotation = f.rotation.filter((x) => x !== me.id)
+            const u = d.users.find((x) => x.id === me.id)!
+            u.flatId = null
+          })}
+        />
+      </section>
+
       <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out · choose another person</button>
     </div>
+  )
+}
+
+/** The plan, and the day-21 pre-pay ask (prepayment_answered). Opening it sends plan_viewed. */
+function PlanCard({ per }: { per: number }) {
+  const { db, me, flat, update } = useStore()
+  const [open, setOpen] = useState(false)
+  const [split, setSplit] = useState(true)
+  const [reason, setReason] = useState('')
+  const [dishReason, setDishReason] = useState(false)
+  if (!me || !flat) return null
+  const answer = [...(db.events ?? [])].reverse().find((e) => e.flat_id === flat.id && e.event_name === 'prepayment_answered')
+  const send = (a: 'paid' | 'declined' | 'later') =>
+    update((d) => track(d, 'prepayment_answered', { flatId: flat.id, who: me.id }, {
+      price_asked_inr: 149, answer: a, amount_inr: a === 'paid' ? 149 : 0, split_across: split ? flat.memberIds.length : 1, reason_given: reason.trim(), cites_dish_suggestion: dishReason,
+    }))
+  return (
+    <section className="card plan">
+      <button type="button" className="plan-head" aria-expanded={open} onClick={() => { if (!open) update((d) => track(d, 'plan_viewed', { flatId: flat.id, who: me.id }, { price_shown_inr: 149 })); setOpen(!open) }}>
+        <span className="card-title">Plan</span>
+        <span className="muted small">{open ? 'Hide' : 'See plan'}</span>
+      </button>
+      <p><strong>₹149 a month for the flat</strong>, split between flatmates: about ₹{per} each.</p>
+      {open && (
+        <div className="prepay">
+          <p className="muted small">Less than one dinner ordered in when the cook couldn't cook. Free while you try it; on day 21 we ask whether you'd pre-pay for next month. We don't take payments in the app yet.</p>
+          {answer ? (
+            <p>✓ Your flat answered: <strong>{answer.props.answer === 'paid' ? 'would pre-pay' : answer.props.answer === 'later' ? 'ask later' : 'no'}</strong>.</p>
+          ) : (
+            <>
+              <label className="toggle"><input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} /><span><strong>Split across all {flat.memberIds.length} flatmates</strong></span></label>
+              <label className="toggle"><input type="checkbox" checked={dishReason} onChange={(e) => setDishReason(e.target.checked)} /><span><strong>The dish suggestions are a reason</strong></span></label>
+              <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? (optional)" />
+              <div className="row gap8 wrap">
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => send('paid')}>We'd pre-pay ₹149</button>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => send('later')}>Ask later</button>
+                <button type="button" className="btn btn-quiet btn-sm" onClick={() => send('declined')}>No thanks</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -163,12 +242,23 @@ function TurnsCard() {
 
       {isOwner && !tonight.ordered && !tonight.skipped && (
         <>
-          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setHandover(!handover)}>Can't tonight? Hand over</button>
-          {handover && (
+          {tonight.handoverPending ? (
+            <p className="muted small">Asked {nameOf(db, tonight.handoverPending.to)} to take tonight. Waiting for them to accept; until then it's still your turn.</p>
+          ) : (
+            <button type="button" className="btn btn-quiet btn-sm" onClick={() => { if (!handover) startTask('hand_over', 1); setHandover(!handover) }}>Can't tonight? Hand over</button>
+          )}
+          {handover && !tonight.handoverPending && (
             <div className="chips">
               {flat.memberIds.filter((id) => id !== me.id).map((id) => (
-                <button key={id} type="button" className="chip" onClick={() => { updateTonight((e) => { e.handedOverFrom = me.id; e.ownerId = id }); setHandover(false) }}>
-                  {nameOf(db, id)} takes tonight
+                <button key={id} type="button" className="chip" onClick={() => {
+                  const done = finishTask('hand_over')
+                  updateTonight((e, d) => {
+                    requestHandover(d, e, me.id, id, d.clock?.time ?? '22:00')
+                    if (done) track(d, 'task_completed', { flatId: flat.id, who: me.id }, done)
+                  })
+                  setHandover(false)
+                }}>
+                  Ask {nameOf(db, id)}
                 </button>
               ))}
             </div>
@@ -192,7 +282,11 @@ function TurnsCard() {
           <input
             type="checkbox"
             checked={inTurn}
-            onChange={(e) => update((d) => { const f = d.flats.find((x) => x.id === flat.id)!; f.rotation = e.target.checked ? [...f.rotation, me.id] : f.rotation.filter((x) => x !== me.id) })}
+            onChange={(e) => update((d) => {
+              const f = d.flats.find((x) => x.id === flat.id)!
+              f.rotation = e.target.checked ? [...f.rotation, me.id] : f.rotation.filter((x) => x !== me.id)
+              track(d, 'rotation_changed', { flatId: f.id, who: me.id }, { in_rotation: e.target.checked, turn_position: e.target.checked ? f.rotation.indexOf(me.id) + 1 : 0, at_setup: false })
+            })}
           />
           <span><strong>I take a turn ordering</strong><span className="muted small">Order: {flat.rotation.map(who).join(' → ') || 'nobody yet'}</span></span>
         </label>

@@ -39,6 +39,11 @@ const T = {
     hi: 'सामान आ गया है। आपने जो माँगा था, सब रसोई में है।',
     te: 'సరుకులు వచ్చాయి. మీరు అడిగినవన్నీ వంటగదిలో ఉన్నాయి.',
   },
+  planned: { en: 'Did you cook', hi: 'क्या आपने बनाया', te: 'మీరు వండారా' },
+  plannedYes: { en: 'Yes', hi: 'हाँ', te: 'అవును' },
+  plannedNo: { en: 'No, something else', hi: 'नहीं, कुछ और', te: 'లేదు, వేరేది' },
+  notFresh: { en: 'Anything not fresh?', hi: 'कुछ ताज़ा नहीं था?', te: 'ఏదైనా తాజాగా లేదా?' },
+  topUp: { en: 'We had to order extra today', hi: 'आज अलग से मँगाना पड़ा', te: 'ఈరోజు అదనంగా తెప్పించాల్సి వచ్చింది' },
   dayOff: { en: 'Not coming tomorrow', hi: 'कल नहीं आऊँगी', te: 'రేపు రాను' },
 } as const
 

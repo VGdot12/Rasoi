@@ -50,7 +50,7 @@ is **Quad 3** (Aditya, Rohan, Karan and their cook, Sunita didi), with two weeks
 **Pick who you are on the first screen.** You live through the whole evening as that person and can't
 switch mid-way; log out to try another. Signing in needs no typing: the number is filled in and the code
 always fills itself after about 1.5 seconds, as SMS autofill does (for new numbers too). Then press **Simulate**: the clock runs from 7:30 pm to midnight at
-20 seconds per hour, and **Restart** takes you back to 7:30 pm.
+about 6 seconds per hour (`SIM.minutesPerSecond` in `src/lib/logic.ts`), and **Restart** takes you back to 7:30 pm.
 
 | Journey | What you do | What happens on its own |
 |---|---|---|
@@ -59,6 +59,13 @@ always fills itself after about 1.5 seconds, as SMS autofill does (for new numbe
 | **Sunita didi · cook** | At 8 pm the clock waits for you: answer the three questions and send | The flat orders at 11 pm and receives it at 11:30 pm |
 
 Each journey ends on a "Kitchen ready for tomorrow" screen with a recap of the evening.
+
+## Analytics
+
+The app records the 33 events in the team's analytics and event tracking spec (hashed people, no
+content, test data flagged) and computes the North Star, its inputs, the GAME goals and the guardrails
+from them. Open the team's **Metrics** view with 📊 on the Simulate bar. At midnight, **Next day ›**
+moves on to the next evening so week-long metrics can build up. Details: `DOCUMENTATION.md`, section 10.
 
 ## Design principles applied
 

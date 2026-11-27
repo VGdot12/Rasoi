@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Lang } from '../lib/catalogue'
+import { finishTask, startTask, track } from '../lib/analytics'
 import { uid } from '../lib/logic'
 import { PERSONAS } from '../lib/seed'
 import { useStore } from '../lib/store'
@@ -32,11 +33,17 @@ export function Auth() {
 
   const verify = () => {
     const existing = db.users.find((u) => u.phone === digits)
+    const done = finishTask('sign_in')
     if (existing) {
       if (persona) sim.resetEvening() // every journey starts fresh at 7:30 pm
-      update((d) => void (d.sessionUserId = existing.id))
+      update((d) => {
+        d.sessionUserId = existing.id
+        if (done) track(d, 'task_completed', { flatId: existing.flatId ?? '', who: existing.id }, done)
+      })
+    } else {
+      if (done) update((d) => track(d, 'task_completed', { flatId: '', who: '' }, done))
+      setStep('profile')
     }
-    else setStep('profile')
   }
 
   const createUser = () =>
@@ -46,6 +53,8 @@ export function Auth() {
       d.users.push({ id, name: name.trim(), phone: digits, role, lang: role === 'cook' ? lang : 'en', flatId: flat?.id ?? null })
       if (flat) flat.cookId = id
       d.sessionUserId = id
+      track(d, 'user_signed_up', { flatId: flat?.id ?? '', who: id }, { role, ...(role === 'cook' ? { cook_language: lang } : {}) })
+      if (flat) track(d, 'cook_joined', { flatId: flat.id, who: id }, { connected_via: 'saved_number', cook_language: lang })
     })
 
   if (step === 'pick')
@@ -70,6 +79,7 @@ export function Auth() {
               type="button"
               className="persona"
               onClick={() => {
+                startTask('sign_in', 1)
                 setPersona(p)
                 setPhone(p.phone)
                 setOtp('')
@@ -86,7 +96,7 @@ export function Auth() {
             </button>
           ))}
         </div>
-        <button type="button" className="link center-block" onClick={() => { setPersona(null); setPhone(''); setStep('phone') }}>
+        <button type="button" className="link center-block" onClick={() => { startTask('flat_setup', 1); startTask('sign_in', 0); setPersona(null); setPhone(''); setStep('phone') }}>
           New here? Set up your own flat
         </button>
       </div>

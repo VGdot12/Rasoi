@@ -4,17 +4,19 @@ import { useStore } from '../lib/store'
 
 /** Prototype control: runs the evening clock for the journey you picked. You can't switch people mid-way. */
 export function SimBar() {
-  const { me, time, sim } = useStore()
+  const { me, tonight, time, sim, metrics } = useStore()
   if (!me) return null
   const persona = PERSONAS.find((p) => p.userId === me.id)
+  // The role follows the turn: after Next day, Aditya may just be a flatmate.
+  const roleNow = me.role === 'cook' ? 'cook' : tonight?.ownerId === me.id ? 'orders tonight' : 'flatmate'
   const ended = time >= SIM.end
   const fresh = !sim.running && !sim.waitingForCook && time === SIM.start
   const progress = Math.min(1, Math.max(0, (toMin(time) - toMin(SIM.start)) / (toMin(SIM.end) - toMin(SIM.start))))
   return (
     <div className="simbar">
       <div className="sim-row">
-        <button type="button" className={`sim-btn ${sim.running ? 'on' : ''}`} onClick={sim.toggle} disabled={sim.waitingForCook}>
-          {sim.running ? '❚❚ Pause' : ended ? '↺ Run again' : sim.waitingForCook ? 'Waiting for you' : fresh ? '▶ Simulate' : '▶ Resume'}
+        <button type="button" className={`sim-btn ${sim.running ? 'on' : ''}`} onClick={ended ? sim.nextDay : sim.toggle} disabled={sim.waitingForCook}>
+          {sim.running ? '❚❚ Pause' : ended ? 'Next day ›' : sim.waitingForCook ? 'Waiting for you' : fresh ? '▶ Simulate' : '▶ Resume'}
         </button>
         <div className="sim-clock">
           <strong>{fmtTime(time)}</strong>
@@ -23,14 +25,15 @@ export function SimBar() {
         {!fresh && (
           <button type="button" className="sim-restart" onClick={sim.resetEvening}>Restart</button>
         )}
+        <button type="button" className="sim-restart" onClick={() => metrics.setOpen(true)} aria-label="Open metrics">📊</button>
       </div>
       {(sim.waitingForCook || fresh || ended) && <div className="sim-hint">
         {sim.waitingForCook
           ? 'Paused at 8 pm. Send your note below and the evening carries on.'
           : fresh
-            ? `You're ${persona?.name ?? me.name}${persona ? ` · ${persona.role.toLowerCase()}` : ''}. 7:30 pm to midnight, 20 seconds an hour.`
+            ? `You're ${persona?.name ?? me.name} · ${roleNow}. 7:30 pm to midnight, about ${Math.round(60 / SIM.minutesPerSecond)} seconds an hour.`
             : ended
-              ? 'Evening over.'
+              ? 'Evening over. Next day moves to tomorrow evening; Restart runs tonight again.'
               : ''}
       </div>}
     </div>

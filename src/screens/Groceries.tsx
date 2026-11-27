@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { track } from '../lib/analytics'
 import { CopyBtn, QtyPicker } from '../components/ui'
 import { byKey, emojiOf, unitTypeOf } from '../lib/catalogue'
 import {
@@ -20,6 +21,7 @@ export function GroceriesTab() {
   const { db, me, flat, tonight, today, time, update, updateTonight } = useStore()
   const [add, setAdd] = useState(false)
   const [order, setOrder] = useState(false)
+  const [openRow, setOpenRow] = useState<string | null>(null)
   if (!me || !flat || !tonight) return null
 
   const lines = buildList(tonight)
@@ -47,8 +49,18 @@ export function GroceriesTab() {
               : `${owner} is ordering these by ${fmtTime(AUTO.orderAt)}.`
             : `Being collected. The list goes out at ${fmtTime(DEADLINES.list)}.`
 
+  const ctx = () => ({ flatId: flat.id, who: me.id })
+  const itemId = (k: string) => (byKey(k) ? k : 'custom')
+  // One tap: item_added (kitchen_reorder) and the reorder_from_kitchen task.
   const addFromKitchen = (key: string, qty: string) =>
-    update((d) => addToEvening(d, flat.id, addDays(now(d).date, locked ? 1 : 0), key, qty, me.id))
+    update((d) => {
+      if (addToEvening(d, flat.id, addDays(now(d).date, locked ? 1 : 0), key, qty, me.id, 'kitchen_reorder'))
+        track(d, 'task_completed', ctx(), { task: 'reorder_from_kitchen', taps: 1, typed_chars: 0, duration_ms: 0, started_at: new Date().toISOString() })
+    })
+  const report = (name: 'duplicate_reported' | 'freshness_reported', key: string) =>
+    update((d) => track(d, name, ctx(), { item_id: itemId(key), reported_by_role: me.role }))
+  const reported = (name: string, key: string) =>
+    (db.events ?? []).some((e) => e.flat_id === flat.id && e.event_name === name && e.props.item_id === itemId(key) && e.evening_date === today)
 
   return (
     <div className="screen">
@@ -80,9 +92,9 @@ export function GroceriesTab() {
                     {l.name}
                     <span className="muted small">added by {who(l.addedBy)}</span>
                   </span>
-                  <QtyPicker label={l.name} value={l.qty} type={unitTypeOf(l.key)} disabled={locked} onChange={(v) => updateTonight((ev) => { ev.qtyEdits[l.key] = v; const x = ev.extras.find((y) => y.key === l.key); if (x) x.qty = v })} />
+                  <QtyPicker label={l.name} value={l.qty} type={unitTypeOf(l.key)} disabled={locked} onChange={(v) => updateTonight((ev, d) => { ev.qtyEdits[l.key] = v; const x = ev.extras.find((y) => y.key === l.key); if (x) x.qty = v; track(d, 'item_changed', ctx(), { change: 'quantity', item_id: itemId(l.key), from: l.qty, to: v }) })} />
                   {!locked && (
-                    <button type="button" className="icon-btn" aria-label={`Remove ${l.name}`} onClick={() => updateTonight((ev) => { ev.removed.push(l.key); ev.extras = ev.extras.filter((x) => x.key !== l.key) })}>✕</button>
+                    <button type="button" className="icon-btn" aria-label={`Remove ${l.name}`} onClick={() => updateTonight((ev, d) => { ev.removed.push(l.key); ev.extras = ev.extras.filter((x) => x.key !== l.key); track(d, 'item_changed', ctx(), { change: 'removed', item_id: itemId(l.key), from: l.qty, to: null }) })}>✕</button>
                   )}
                 </li>
               ))}
@@ -95,7 +107,7 @@ export function GroceriesTab() {
         )}
         {!received && lines.length > 0 && (
           <div className="row gap8 wrap">
-            <CopyBtn text={pasteList(lines)} label="Copy list" className="btn btn-quiet btn-sm" />
+            <CopyBtn text={pasteList(lines)} label="Copy list" className="btn btn-quiet btn-sm" onCopy={() => update((d) => track(d, 'list_copied', ctx(), { item_count: lines.length }))} />
           </div>
         )}
 
@@ -114,7 +126,7 @@ export function GroceriesTab() {
         <div className="groc-head">
           <span className="card-title">In the kitchen · {pantry.length}</span>
         </div>
-        <p className="muted small">What {flat.cookName} has to cook with. Running low? Tap Order.</p>
+        <p className="muted small">What {flat.cookName} has to cook with. Running low? Tap Order. Tap an item to report it bought twice or not fresh.</p>
         {pantry.length === 0 ? (
           <p className="muted">Nothing recorded yet. Items move here when an order is received.</p>
         ) : (
@@ -123,16 +135,26 @@ export function GroceriesTab() {
               const fresh = received && p.since === today
               const low = onList.has(p.key)
               return (
-                <li key={p.key} className={fresh ? 'fresh' : ''}>
+                <li key={p.key} className={`${fresh ? 'fresh' : ''} ${openRow === p.key ? 'open' : ''}`}>
                   <span className="line-emoji">{emojiOf(p.key)}</span>
-                  <span className="line-name">
+                  <button type="button" className="line-name pantry-name" aria-expanded={openRow === p.key} onClick={() => setOpenRow(openRow === p.key ? null : p.key)}>
                     <span>{byKey(p.key)?.en ?? p.key} <span className="pantry-qty">{p.qty}</span></span>
                     <span className="muted small">{fresh ? 'Just arrived' : sinceLabel(p.since, today)}</span>
-                  </span>
+                  </button>
                   {low ? (
                     <span className="tag tag-low">On the list</span>
                   ) : (
                     <button type="button" className="btn btn-outline btn-sm" onClick={() => addFromKitchen(p.key, p.qty)}>+ Order</button>
+                  )}
+                  {openRow === p.key && (
+                    <div className="pantry-actions">
+                      {reported('duplicate_reported', p.key) ? <span className="tag">Reported: bought twice</span> : (
+                        <button type="button" className="chip" onClick={() => report('duplicate_reported', p.key)}>Bought twice</button>
+                      )}
+                      {byKey(p.key)?.veg && (reported('freshness_reported', p.key) ? <span className="tag">Reported: not fresh</span> : (
+                        <button type="button" className="chip" onClick={() => report('freshness_reported', p.key)}>Not fresh</button>
+                      ))}
+                    </div>
                   )}
                 </li>
               )

@@ -10,6 +10,8 @@ export interface User {
   role: Role
   lang: Lang
   flatId: string | null
+  /** Turned off reminders (flat_muted_or_left, scope person). */
+  muted?: boolean
 }
 
 export interface Flat {
@@ -56,6 +58,17 @@ export interface CookNote {
   voiceSecs: number
   staplesChecked: boolean
   dayOffTomorrow: boolean
+  /** "Did you cook <yesterday's planned dish>?" null when nothing was planned. */
+  plannedDishCooked?: boolean | null
+  /** "We had to order extra today" (a same-day top-up: the visit is not ready). */
+  topUp?: boolean
+  /** Vegetables that were not fresh (freshness guardrail). */
+  notFresh?: string[]
+  /** Whether she picked the suggested (starred) dish. */
+  dishWasSuggested?: boolean
+  /** Whether a cook_prompt reached her before the note. */
+  prompted?: boolean
+  edited?: boolean
 }
 
 /** One evening for one flat: the note, the list, the owner, the order. Keyed by date. */
@@ -81,14 +94,37 @@ export interface Evening {
   skipped: boolean // cook's day off: nobody orders, the turn does not move
   /** The kitchen as it was when the evening began, so a prototype restart can put it back. */
   pantryAtStart: PantryItem[]
+  /** A hand-over waiting for the other flatmate to accept. */
+  handoverPending?: { from: string; to: string; at: string } | null
+}
+
+/** One analytics event, with the common properties from the tracking spec (section 3). */
+export interface AnalyticsEvent {
+  event_id: string
+  event_name: string
+  occurred_at: string // UTC ISO 8601
+  evening_date: string // IST date of the evening it belongs to
+  flat_id: string
+  person_id: string // SHA-256 of phone + salt (short form); '' for server events
+  role: Role | ''
+  is_owner_tonight: boolean
+  ui_language: Lang
+  app_version: string
+  platform: 'web-android' | 'web-ios' | 'web-desktop'
+  is_simulated: boolean
+  props: Record<string, string | number | boolean | null | string[]>
+  /** Prototype only: keeps a once-per-evening event from firing twice. Never sent. */
+  _once?: string
 }
 
 export interface DB {
-  version: 5
+  version: 6
   users: User[]
   flats: Flat[]
   evenings: Evening[]
   sessionUserId: string | null
   /** Prototype clock: lets a demo move through the evening. null = real time. */
   clock: { date: string; time: string } | null
+  /** Append-only analytics event log (the events table, kept on the device in the prototype). */
+  events: AnalyticsEvent[]
 }
