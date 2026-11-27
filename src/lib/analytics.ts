@@ -5,7 +5,7 @@
 
 import type { AnalyticsEvent, DB, Role } from './types'
 
-export const APP_VERSION = '0.8.0'
+export const APP_VERSION = '0.9.0'
 const SALT = 'rasoi-ready-pilot-salt-v1' // app-wide salt; rotated and held by the team in production
 
 // ---------- SHA-256 (small, synchronous, so events can be built inside a state update) ----------
@@ -193,3 +193,15 @@ export const TASK_BARS: Record<string, { taps: number; chars: number; label: str
   hand_over: { taps: 3, chars: 0, label: 'Hand over' },
   flat_setup: { taps: 21, chars: 43, label: 'Set up a flat' },
 }
+
+const SETUP_EVENTS = new Set(['user_signed_up', 'flat_created', 'flat_joined', 'cook_joined', 'invite_sent'])
+/** Events from before an evening starts (sign-up and flat setup), which a Restart keeps. */
+export function isSetupEvent(e: AnalyticsEvent) {
+  if (SETUP_EVENTS.has(e.event_name)) return true
+  if (e.event_name === 'rotation_changed' || e.event_name === 'usual_dishes_shared') return e.props.at_setup === true || e.props.source === 'setup'
+  if (e.event_name === 'task_completed' || e.event_name === 'task_abandoned') return e.props.task === 'sign_in' || e.props.task === 'flat_setup'
+  return false
+}
+
+/** The team password for the analytics view (a prototype gate, not real security). */
+export const TEAM_PASSWORD = 'SWPMB14'

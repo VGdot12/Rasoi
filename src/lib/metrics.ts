@@ -28,9 +28,9 @@ export function weekOf(date: string) {
   return { start: mon, end: addDays(mon, 6) }
 }
 
-/** The events a metric may use: one flat, with or without simulated data. */
-export function eventsFor(d: DB, flatId: string, includeSimulated: boolean) {
-  return (d.events ?? []).filter((e) => e.flat_id === flatId && (includeSimulated || !e.is_simulated))
+/** The events a metric may use: one flat's. */
+export function eventsFor(d: DB, flatId: string) {
+  return (d.events ?? []).filter((e) => e.flat_id === flatId)
 }
 
 const isName = (n: string) => (e: AnalyticsEvent) => e.event_name === n
@@ -117,10 +117,13 @@ export function flatEvenings(evs: AnalyticsEvent[]): FlatEvening[] {
 }
 
 export interface Report {
-  week: { start: string; end: string }
+  /** The days the numbers cover: every day played so far, or one day. */
+  range: { start: string; end: string }
+  /** Days played (one row per evening), oldest first, numbered from Day 1. */
+  days: (FlatEvening & { n: number })[]
   baselineWeek: { start: string; end: string } | null
   rows: FlatEvening[]
-  northStar: { ready: number; visitDays: number; share: Ratio; noNoteDays: number; lastWeekReady: number | null }
+  northStar: { ready: number; visitDays: number; share: Ratio; noNoteDays: number; prevDayReady: number | null }
   inputs: { active: boolean; noteCoverage: Ratio; orderThrough: Ratio; cameBack: Ratio }
   g1: { firstNoteWithin3: { ok: boolean | null; days: number | null }; missing: Ratio; missingBaseline: Ratio | null }
   g2: { rotation: Ratio; afterReminder: Ratio; concentration: Ratio & { applies: boolean }; duplicates: number; feeSplit: Ratio }
@@ -130,13 +133,18 @@ export interface Report {
   effort: { task: string; label: string; n: number; taps: number | null; chars: number | null; bar: { taps: number; chars: number }; abandoned: number }[]
 }
 
-export function buildReport(d: DB, flatId: string, today: string, includeSimulated: boolean): Report {
+/**
+ * The report for one flat. `day` is 'all' (every day played up to today, the default) or one evening's date.
+ * It is rebuilt from the events on every render, so it is live: a finished day adds a row straight away.
+ */
+export function buildReport(d: DB, flatId: string, today: string, day: 'all' | string = 'all'): Report {
   const flat = d.flats.find((f) => f.id === flatId)!
-  const evs = eventsFor(d, flatId, includeSimulated)
-  const week = weekOf(today)
+  const evs = eventsFor(d, flatId)
+  const rows = flatEvenings(evs).filter((r) => r.date <= today)
+  const days = rows.map((r, i) => ({ ...r, n: i + 1 }))
+  const week = day === 'all' ? { start: rows[0]?.date ?? today, end: today } : { start: day, end: day }
   const inWeek = inRange(week.start, week.end)
-  const rows = flatEvenings(evs)
-  const weekRows = rows.filter((r) => r.date >= week.start && r.date <= week.end && r.date <= today)
+  const weekRows = rows.filter((r) => r.date >= week.start && r.date <= week.end)
   const visitRows = weekRows.filter((r) => r.isVisitDay)
 
   // North Star: ready cook visits this week (visit_date in the week), and ready share.
@@ -145,8 +153,7 @@ export function buildReport(d: DB, flatId: string, today: string, includeSimulat
   const readyIn = (a: string, b: string) =>
     visitChecks.filter((v) => String(v.props.visit_date) >= a && String(v.props.visit_date) <= b && v.props.nothing_missing === true && !tops.has(String(v.props.visit_date))).length
   const ready = readyIn(week.start, week.end)
-  const lastWeek = weekOf(addDays(week.start, -1))
-  const hadLastWeek = rows.some((r) => r.date >= lastWeek.start && r.date <= lastWeek.end)
+  const prevDay = day === 'all' ? null : rows.filter((r) => r.date < day).pop()?.date ?? null
   const noNoteDays = visitRows.filter((r) => !r.note).length
 
   // Inputs
@@ -163,8 +170,9 @@ export function buildReport(d: DB, flatId: string, today: string, includeSimulat
     const c = checksIn(a, b)
     return ratio(c.filter((v) => v.props.nothing_missing === false).length, c.length)
   }
+  // "Week 1" is the first seven days played; later days are compared with it.
   const firstDate = rows[0]?.date
-  const baselineWeek = firstDate ? weekOf(firstDate) : null
+  const baselineWeek = firstDate ? { start: firstDate, end: addDays(firstDate, 6) } : null
 
   // G2
   const lastRotation = new Map<string, boolean>()
@@ -211,15 +219,16 @@ export function buildReport(d: DB, flatId: string, today: string, includeSimulat
   })
 
   return {
-    week,
+    range: week,
+    days,
     baselineWeek,
     rows,
-    northStar: { ready, visitDays: visitRows.length, share: ratio(visitRows.filter((r) => r.ready === true).length, visitRows.length), noNoteDays, lastWeekReady: hadLastWeek ? readyIn(lastWeek.start, lastWeek.end) : null },
+    northStar: { ready, visitDays: visitRows.length, share: ratio(visitRows.filter((r) => r.ready === true).length, visitRows.length), noNoteDays, prevDayReady: prevDay ? readyIn(prevDay, prevDay) : null },
     inputs: { active: visitRows.some((r) => !!r.note), noteCoverage: ratio(notesOnTime, visitRows.length), orderThrough: ratio(listed.filter((r) => !!r.ordered).length, listed.length), cameBack: ratio(cameBack, visitRows.length) },
     g1: {
       firstNoteWithin3: { ok: firstDays === null ? null : firstDays <= 3, days: firstDays },
       missing: missing(week.start, week.end),
-      missingBaseline: baselineWeek && baselineWeek.start !== week.start ? missing(baselineWeek.start, baselineWeek.end) : null,
+      missingBaseline: baselineWeek && week.end > baselineWeek.end ? missing(baselineWeek.start, baselineWeek.end) : null,
     },
     g2: {
       rotation: ratio(inRot, flat.memberIds.length),

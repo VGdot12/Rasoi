@@ -1,17 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { startEffortListener } from './analytics'
+import { isSetupEvent, startEffortListener } from './analytics'
 import { addDays, DEADLINES, eveningOrDraft, findEvening, newEvening, now, SIM, simTick } from './logic'
 import { seedDB } from './seed'
 import type { DB, Evening, Flat, User } from './types'
 
-const KEY = 'rasoi-ready:app:v6'
+const KEY = 'rasoi-ready:app:v7'
 
 function load(): DB {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const db = JSON.parse(raw) as DB
-      if (db.version === 6) return db
+      if (db.version === 7) return db
     }
   } catch {
     /* storage unavailable */
@@ -44,7 +44,7 @@ interface Store {
   /** Change tonight's evening for my flat, creating it on first touch. */
   updateTonight: (fn: (e: Evening, d: DB) => void) => void
   reset: () => void
-  /** The team's Metrics view (prototype only). */
+  /** The team's analytics (opened from the Flat tab with the team password). */
   metrics: { open: boolean; setOpen: (v: boolean) => void }
   sim: {
     running: boolean
@@ -120,8 +120,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (f && e.pantryAtStart) f.pantry = structuredClone(e.pantryAtStart)
       }
       d.evenings = d.evenings.filter((e) => e.date !== date)
-      // A restart re-runs the same evening, so its events are taken back out of the log.
-      d.events = (d.events ?? []).filter((x) => x.evening_date !== date)
+      // A restart re-runs the same evening, so its events are taken back out of the log
+      // (sign-ups and flat setup stay: they happened before the evening began).
+      d.events = (d.events ?? []).filter((x) => x.evening_date !== date || isSetupEvent(x))
       d.clock = { date, time: SIM.start }
     })
   }

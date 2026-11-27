@@ -118,7 +118,7 @@ export interface AnalyticsEvent {
 }
 
 export interface DB {
-  version: 6
+  version: 7
   users: User[]
   flats: Flat[]
   evenings: Evening[]

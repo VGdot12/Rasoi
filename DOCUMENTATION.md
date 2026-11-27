@@ -214,6 +214,7 @@ Splitwise. The plan shown in the app is **₹149 a month per flat**, split betwe
   ₹149*, *Ask later* or *No thanks*, with "split across all flatmates", "the dish suggestions are a
   reason" and an optional reason. No payment is taken in the app.
 - **Settings:** *Mute reminders* and *Leave this flat* (two taps).
+- **For the Rasoi Ready team:** *🔒 Analytics*, password protected (section 10).
 - **How Rasoi Ready works**, and **Log out**.
 
 **🔔 Notifications** (bell, top right): the note arrived, the list created, the owner's reminder (owner
@@ -245,7 +246,7 @@ minutes", with *Add it on Splitwise*.
      She can also **record a voice note** (up to 60 seconds).
 - **Not coming tomorrow:** marks her day off (nobody orders, turns don't move).
 - **Send to the flat.** Then she sees *Sent. Thank you!*, tomorrow's list as pictures, and the order
-  status (*not ordered yet* → *ordered by Aditya*). When the flat receives the order, her screen ends on
+  status (*not ordered yet* → *ordered by Aditya*), with *🔒 Analytics* for the team below *Log out*. When the flat receives the order, her screen ends on
   **"कल के लिए सब तैयार!"** (All set for tomorrow!). She can *Change my note*.
 
 ---
@@ -281,7 +282,7 @@ The prototype has no backend, so the evening is **simulated** on one device.
 - **Next day ›** replaces the main button at midnight. It moves to the next evening at 7:30 pm: turns
   rotate (after Aditya comes Karan, then Rohan), and the cook's next note answers "did today have
   everything?" about the order just placed. Restart is still there to run tonight again.
-- **📊** opens the team's **Metrics** view (section 10).
+- Analytics are not on the Simulate bar: the team opens them from the **Flat** tab (section 10).
 
 ### What happens on its own
 Everyone you are **not** playing acts automatically:
@@ -299,12 +300,12 @@ In the flatmate journeys, Didi's automatic note leaves the dish open, so testers
 
 ### Sample data: flat "Quad 3"
 - Flatmates **Aditya, Karan, Rohan** (turn order) and cook **Sunita didi** (Hindi), invite code `QUAD03`.
-- 12 usual dishes, two weeks of history (orders, one skipped day, two "missing" visits), and 11 items in
+- 12 usual dishes, no made-up history (the flat was set up the day before Day 1), and 11 items in
   the kitchen (atta, rice, dal, oil, onions, potatoes, tomatoes, garlic, green chillies, milk, eggs).
 - Aditya is always tonight's owner when a journey starts. After **Next day**, the turn moves on and
   the label in the Simulate bar follows it ("Aditya · flatmate", "Karan orders tonight").
-- The two weeks of history are also stored as analytics events, so the Metrics view has week-on-week
-  numbers from the start.
+- Only the flat's setup (sign-ups, joins, turn order, usual dishes) is stored as events in advance.
+  Every evening in the analytics is one that was played.
 
 A one-page-per-person test guide is in `Rasoi-Ready-Test-Guide.pdf`.
 
@@ -347,7 +348,7 @@ Other choices:
 | B2 One list with quantities | Groceries · To order (list created at 10 pm) |
 | B3 One owner, one reminder, "ordered" | Turns, owner-only Order now, reminder, Order placed |
 | B4 Cook reports each visit | "Did you have everything today?" and "Did you cook [dish]?" in her note |
-| B5 All events logged per flat per day | The 33 tracked events and the Metrics view (section 10) |
+| B5 All events logged per flat per day | The 33 tracked events and the team-only analytics view (section 10) |
 | B6 Dish suggestion from usual dishes | Decide tomorrow's dish card; ⭐ in the cook's list |
 | B7 Weekly staples check | Staples day adds atta, rice, oil, dal to her question 3 |
 | B8 Hindi and Telugu | Cook app language switch |
@@ -377,16 +378,17 @@ flat-evening.
 ### How events are recorded
 - `track()` in `src/lib/analytics.ts` adds the **common properties** to every event: `event_id`,
   `event_name`, `occurred_at` (UTC), `evening_date` (IST), `flat_id`, `person_id`, `role`,
-  `is_owner_tonight`, `ui_language`, `app_version`, `platform`, `is_simulated`.
+  `is_owner_tonight`, `ui_language`, `app_version`, `platform`, `is_simulated` (kept from the spec;
+  the analytics count every event, because every day in the prototype is one somebody played).
 - **People are a hash:** `person_id` is SHA-256 of the phone number plus an app-wide salt. No names,
   phone numbers, invite codes, voice audio or transcripts are stored in events; typed item names are sent
   as `custom`.
 - **State events fire where the change happens,** in `src/lib/logic.ts` (note, list, order, delivery,
   hand-over, day off). So real taps and the people the Simulate bar plays send exactly the same events.
-- **Test data is flagged, not deleted:** everything from the Simulate clock or the sample flat Quad 3 has
-  `is_simulated = true`.
+- **No sample data:** the sample flat starts with no evenings and no evening events. Only what is played
+  is counted.
 - Events are an **append-only log** kept with the app's data on the device. Restart takes the restarted
-  evening's events back out, because it re-runs the same evening.
+  evening's events back out, because it re-runs the same evening (setup events stay).
 
 ### The 33 events
 
@@ -406,13 +408,21 @@ event that ends it. Autofill and the self-filling code count as 0. In a browser 
 the prototype bars: sign in 3 taps, add an item 4, place the order 3 (+3 characters for the bill),
 confirm delivery 1.
 
-### The Metrics view (team only)
-Open it with **📊** on the Simulate bar. Flatmates and cooks never see it. Per flat and per week
-(Monday to Sunday, IST), with the count beside every percentage:
+### The analytics view (team only, password protected)
+**Flat tab → For the Rasoi Ready team → 🔒 Analytics**, then the password **`SWPMB14`**. It asks every
+time; a wrong password shows "That password isn't right." Didi's screen has the same button below *Log
+out* once her note is sent. Nothing about analytics appears anywhere else in the app.
 
-- **North Star:** ready cook visits this week, ready share, days with no note, last week for comparison.
+**Live and day by day.** The view is rebuilt from the events every time the data changes, so it updates
+while the clock runs. Day 1 appears as soon as the first evening starts (marked "tonight still
+running" until midnight). Press **Next day ›** and play the next evening, and Day 2 is added; the
+numbers then cover both days. Chips at the top switch between **All days** (the default) and a single
+**Day N**. The count sits beside every percentage:
+
+- **North Star:** ready cook visits in the days shown, ready share, days with no note; in a single day,
+  the day before for comparison.
 - **Inputs:** active flat, note coverage (target 5 of 7), order-through (pass rule 70%), came back.
-- **G1:** first note within 3 days of setup; "something missing" visits against week 1.
+- **G1:** first note within 3 days of setup; "something missing" visits against the first 7 days played.
 - **G2:** flatmates in the rotation, owner orders after one reminder, order concentration (last 14 days,
   flats of 3+), duplicate buys, fee split.
 - **G3:** usual-dish list, dish named by 8 pm, suggestion accepted, planned dish cooked, dish as a reason
@@ -421,12 +431,15 @@ Open it with **📊** on the Simulate bar. Flatmates and cooks never see it. Per
   freshness complaints.
 - **Money and effort:** pre-pay rate at ₹149, time from note to list and to order, median taps per task
   against its bar.
-- **Flat evenings:** the derived `flat_evening` table, one row per evening.
-- **Event log:** every event with its properties, with *Copy JSON*, *Download JSON* and *Download CSV*.
+- **Day by day:** the derived `flat_evening` table, one row per day played (Day 1, Day 2, ...).
+- **Event log:** every event with its properties (or one day's), with *Copy JSON*, *Download JSON* and
+  *Download CSV*.
 
 Each metric shows its target, an on-target or below-target label, and the spec's "if it misses" action.
-*Include test data* is on by default, because every event in the prototype is simulated; turning it off
-shows what a real pilot would count (nothing yet).
+
+The analytics cover what was played **in this browser**, because there is no backend yet. The password is
+a gate in the app, not real security: anyone reading the site's code could find it. A real team view
+belongs on a server with proper sign-in.
 
 ### Where the prototype differs from the spec
 - **No backend yet.** Events stay on the device; the spec's batching to a server, `received_at`, and
@@ -471,7 +484,7 @@ src/
     Tabs.tsx            Dishes, Flat (with Turns)
     Sheets.tsx          add item sheet, order sheet
     Cook.tsx            the cook's one-screen app
-    Metrics.tsx         the team's Metrics view (North Star, inputs, GAME, guardrails, events)
+    Metrics.tsx         the password button and the team analytics view (day by day, live)
   lib/
     analytics.ts        track(), common properties, hashed person ids, effort tasks
     metrics.ts          metric formulas and the flat_evening table, from events
@@ -497,7 +510,7 @@ src/
   (for Restart).
 - **Events:** the append-only analytics log (section 10).
 
-Data is saved in the browser's local storage (key `rasoi-ready:app:v6`). **Reset** happens by logging in
+Data is saved in the browser's local storage (key `rasoi-ready:app:v7`). **Reset** happens by logging in
 as a persona (each journey starts fresh) or clearing site data.
 
 ### Settings you can change (`src/lib/logic.ts`)
@@ -544,5 +557,6 @@ as a persona (each journey starts fresh) or clearing site data.
 | 6 · Groceries and Home | *To order* + *In the kitchen*; Tonight renamed Home ("Tomorrow's cooking"); dish card only when needed; Turns moved to Flat; code always auto-fills; "Roommate" → "Flatmate" |
 | 7 · Faster clock | `minutesPerSecond` raised from 3 to 10 (about 6 seconds per simulated hour) |
 | 8 · Analytics and Next day | The 33 events from the tracking spec, effort tracking, the new buttons the spec needs, a team Metrics view computed from events, and **Next day** after midnight |
+| 9 · Team-only analytics | Sample history and test data removed; analytics moved off the Simulate bar to a password-protected button in the Flat tab (`SWPMB14`); numbers are live and grow one day at a time (All days / Day 1 / Day 2 ...) |
 
 Also produced: a **Whiteboard** user-flow diagram and a **three-page test guide PDF** (one page per person).

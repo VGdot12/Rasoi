@@ -13,9 +13,12 @@ describe('turns rotate', () => {
     expect(turns.slice(0, 3)).toEqual(turns.slice(3, 6))
   })
   it('does not move the turn on a skipped night', () => {
-    const skipped = db.evenings.find((e) => e.skipped)!
-    const next = db.evenings.find((e) => e.date === addDays(skipped.date, 1))!
+    const skipped = newEvening(db, flat, today)
+    skipped.skipped = true
+    db.evenings.push(skipped)
+    const next = newEvening(db, flat, addDays(today, 1))
     expect(next.turnIndex).toBe(skipped.turnIndex)
+    expect(next.ownerId).toBe(skipped.ownerId)
   })
 })
 

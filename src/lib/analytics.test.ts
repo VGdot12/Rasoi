@@ -70,7 +70,7 @@ describe('guardrails and hand-over', () => {
   it('asks nobody more than once in an evening', () => {
     const db = seedDB(); db.sessionUserId = 'u_rohan'
     run(db, '24:00')
-    const r = buildReport(db, db.flats[0].id, db.clock!.date, true)
+    const r = buildReport(db, db.flats[0].id, db.clock!.date)
     expect(r.guardrails.asksMax).toBe(1)
   })
   it('switches the owner only when the other flatmate accepts', () => {
@@ -87,13 +87,28 @@ describe('guardrails and hand-over', () => {
 })
 
 describe('metrics from events', () => {
-  it('computes the North Star and its inputs for the sample flat', () => {
-    const db = seedDB()
-    const r = buildReport(db, db.flats[0].id, db.clock!.date, true)
-    expect(r.rows.length).toBe(13)
-    expect(r.g2.rotation).toMatchObject({ num: 3, den: 3 })
-    expect(r.g3.dishList.ok).toBe(true)
-    expect(buildReport(db, db.flats[0].id, db.clock!.date, false).rows.length).toBe(0) // test data is left out
+  it('starts with no days, then adds one day per evening played (live)', () => {
+    const db = seedDB(); db.sessionUserId = 'u_rohan'
+    const f = db.flats[0].id
+    const day1 = db.clock!.date
+    expect(buildReport(db, f, day1).days.length).toBe(0) // no made-up history
+    expect(buildReport(db, f, day1).g2.rotation).toMatchObject({ num: 3, den: 3 }) // setup is still counted
+    run(db, '20:05')
+    expect(buildReport(db, f, day1).days.length).toBe(1) // Day 1 appears while it runs
+    run(db, '24:00')
+    const one = buildReport(db, f, day1)
+    expect(one.days.map((d) => d.n)).toEqual([1])
+    expect(one.inputs.orderThrough).toMatchObject({ num: 1, den: 1 })
+    const d = new Date(day1 + 'T12:00:00'); d.setDate(d.getDate() + 1)
+    db.clock = { date: d.toISOString().slice(0, 10), time: '19:30' }
+    run(db, '24:00')
+    const two = buildReport(db, f, db.clock!.date)
+    expect(two.days.map((x) => x.n)).toEqual([1, 2])
+    expect(two.inputs.orderThrough).toMatchObject({ num: 2, den: 2 })
+    expect(two.northStar.visitDays).toBe(2)
+    const onlyDay2 = buildReport(db, f, db.clock!.date, db.clock!.date)
+    expect(onlyDay2.inputs.orderThrough).toMatchObject({ num: 1, den: 1 })
+    expect(onlyDay2.northStar.prevDayReady).not.toBeNull()
   })
   it('a Next day evening answers "did today have everything?" from last night', () => {
     const db = seedDB(); db.sessionUserId = 'u_rohan'

@@ -4,6 +4,7 @@ import { DISH_IDEAS } from '../lib/catalogue'
 import { Avatar, ConfirmTwice, CopyBtn, waShare } from '../components/ui'
 import { addDays, fairness, firstName, fmtDay, nameOf, requestHandover, upcomingTurns } from '../lib/logic'
 import { useStore } from '../lib/store'
+import { AnalyticsEntry } from './Metrics'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -165,6 +166,12 @@ export function FlatTab() {
             u.flatId = null
           })}
         />
+      </section>
+
+      <section className="card compact">
+        <div className="card-title">For the Rasoi Ready team</div>
+        <p className="muted small">Analytics for the people building the app. Password needed.</p>
+        <AnalyticsEntry />
       </section>
 
       <button type="button" className="btn btn-outline btn-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out · choose another person</button>

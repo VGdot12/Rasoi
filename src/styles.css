@@ -449,8 +449,15 @@ details.more .toggle { margin-top: 8px; }
 .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--turmeric); }
 .m-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .m-controls select { width: auto; min-width: 140px; margin-left: 6px; }
-.m-week { display: flex; align-items: center; gap: 8px; font-weight: 650; }
-.m-toggle { padding: 8px 12px; }
+.m-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.m-scope { margin: 4px 0 0; font-size: 14px; }
+.m-table tr.m-picked td { background: var(--green-soft); }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #2e9e5b; margin: 0 2px 1px 0; animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 50% { opacity: .35; } }
+.pw-form { display: grid; gap: 10px; margin-top: 8px; }
+.pw-form input { font-size: 16px; letter-spacing: .04em; }
+.err { color: #b3261e; margin: 0; }
+.cook-team { margin-top: 18px; opacity: .85; }
 .m-grid { display: grid; grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); gap: 10px; }
 .m-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
 .m-card p { margin: 0; }

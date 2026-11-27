@@ -6,6 +6,7 @@ import { t } from '../lib/i18n'
 import { finishTask, startTask, taskOpen, track } from '../lib/analytics'
 import { addDays, buildList, finalDish, findEvening, fireNoteEvents, firstName, nameOf, removeFromPantry, wasPrompted, weekday } from '../lib/logic'
 import { useStore } from '../lib/store'
+import { AnalyticsEntry } from './Metrics'
 import type { CookNote } from '../lib/types'
 
 const DAILY = INGREDIENTS.filter((i) => !i.staple)
@@ -131,6 +132,7 @@ export function CookApp() {
         </section>
         <button type="button" className="btn btn-outline btn-block" onClick={() => setEditing(true)}>{L('edit')}</button>
         <button type="button" className="link center-block" onClick={() => update((d) => void (d.sessionUserId = null))}>Log out</button>
+        <div className="cook-team"><AnalyticsEntry /></div>
       </div>
     )
   }

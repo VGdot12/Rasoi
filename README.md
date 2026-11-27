@@ -45,7 +45,8 @@ itself from received orders and the cook's "missing today" answers, so nobody ha
 ## Trying the prototype
 
 There is no backend yet: data is kept in the browser, and login codes are not really sent. The sample flat
-is **Quad 3** (Aditya, Rohan, Karan and their cook, Sunita didi), with two weeks of history.
+is **Quad 3** (Aditya, Rohan, Karan and their cook, Sunita didi). It has no made-up history: every
+evening in it is one you play.
 
 **Pick who you are on the first screen.** You live through the whole evening as that person and can't
 switch mid-way; log out to try another. Signing in needs no typing: the number is filled in and the code
@@ -63,9 +64,10 @@ Each journey ends on a "Kitchen ready for tomorrow" screen with a recap of the e
 ## Analytics
 
 The app records the 33 events in the team's analytics and event tracking spec (hashed people, no
-content, test data flagged) and computes the North Star, its inputs, the GAME goals and the guardrails
-from them. Open the team's **Metrics** view with 📊 on the Simulate bar. At midnight, **Next day ›**
-moves on to the next evening so week-long metrics can build up. Details: `DOCUMENTATION.md`, section 10.
+content) and computes the North Star, its inputs, the GAME goals and the guardrails from them.
+Analytics are for the team only: **Flat tab → 🔒 Analytics**, password `SWPMB14` (Didi's screen has the
+same button after she sends her note). They are live and day by day: Day 1 appears as its evening runs,
+and **Next day ›** at midnight adds Day 2. Details: `DOCUMENTATION.md`, section 10.
 
 ## Design principles applied
 

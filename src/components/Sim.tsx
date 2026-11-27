@@ -4,7 +4,7 @@ import { useStore } from '../lib/store'
 
 /** Prototype control: runs the evening clock for the journey you picked. You can't switch people mid-way. */
 export function SimBar() {
-  const { me, tonight, time, sim, metrics } = useStore()
+  const { me, tonight, time, sim } = useStore()
   if (!me) return null
   const persona = PERSONAS.find((p) => p.userId === me.id)
   // The role follows the turn: after Next day, Aditya may just be a flatmate.
@@ -25,7 +25,6 @@ export function SimBar() {
         {!fresh && (
           <button type="button" className="sim-restart" onClick={sim.resetEvening}>Restart</button>
         )}
-        <button type="button" className="sim-restart" onClick={() => metrics.setOpen(true)} aria-label="Open metrics">📊</button>
       </div>
       {(sim.waitingForCook || fresh || ended) && <div className="sim-hint">
         {sim.waitingForCook
